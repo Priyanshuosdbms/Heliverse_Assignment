@@ -1,0 +1,79 @@
+Below are concise notes summarizing the presentation for quick reference:
+
+Overview & Context
+
+Presentation from Flash Memory Summit 2016 by Uma Parepalli (SK hynix).
+
+Focus on NVMe® device drivers across various platforms.
+
+
+NVMe Driver Ecosystem
+
+Supports multiple operating systems: Windows, Linux, FreeBSD, VMware, Solaris, and UEFI BIOS.
+
+Emphasizes stable in-box drivers and open-source reference implementations.
+
+
+UEFI NVMe Drivers
+
+Essential for booting from NVMe SSDs in UEFI-based systems.
+
+Built-in drivers provide automatic NVMe recognition and enable pre-OS debugging/diagnostics.
+
+OEMs can customize drivers to add value (e.g., firmware updates, enhanced diagnostics).
+
+
+Windows NVMe Drivers
+
+Includes both reference drivers and in-box drivers (backported to older OS versions like Windows 7).
+
+Key features: namespace management, performance optimizations, low crash rates, and power efficiency.
+
+Demonstrated strong performance metrics with scalable IOPS and efficient CPU utilization.
+
+
+Linux NVMe Fabrics Drivers
+
+Redesigned to support multiple transports (PCIe and RDMA).
+
+Utilizes a modular design to allow transport-agnostic NVMe operations.
+
+Future enhancements include Fibre Channel support, improved authentication, and advanced logging.
+
+
+Storage Performance Development Kit (SPDK)
+
+Provides high-performance, user-space NVMe drivers leveraging DPDK.
+
+Optimized for low-latency operations with next-generation storage media like 3D XPoint.
+
+
+FreeBSD NVMe Drivers
+
+Integrated into the base system with tools (e.g., nvme, nvd, nvmecontrol) for management and performance monitoring.
+
+
+VMware NVMe Drivers
+
+Designed for virtualized environments (vSphere, VSAN) with native integration into the hypervisor.
+
+Supports various use cases such as boot devices, cache storage, and logging devices.
+
+
+Compliance, Testing & Resources
+
+Highlights the importance of industry plugfests and compliance events (e.g., UNH-IOL NVMe Plugfest, PCI-SIG workshops) for interoperability testing.
+
+Provides links and resources for downloading drivers, accessing source code, and additional technical documentation.
+
+
+Future Directions & Call to Action
+
+Areas for future enhancement: streams, write protection, namespace management, and virtualization features.
+
+Encourages feedback and testing from the community to drive further improvements.
+
+
+
+These bullet points capture the key themes and technical highlights for note-taking purposes.
+
