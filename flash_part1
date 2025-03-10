@@ -53,3 +53,16 @@ Challenges of Horizontal Scaling - While vertical scaling is limited, horizontal
 Cost of Lithography - The increasing complexity and cost of lithography steps required for scaling horizontal cell dimensions also contribute to the need for 3D NAND [09:22]. Despite the consistent decrease in cost per bit of NAND flash memory, the rising expenses associated with advanced lithography techniques threaten to reverse this trend [11:31].
 3D NAND as a Solution - 3D NAND technology offers a solution by determining cell dimensions through layer deposition rather than lithography [12:04]. This approach reduces costs and allows for controlling the cell cost by increasing the number of layers [13:32].
 3D NAND Array - The video concludes by showing a 3D NAND flash array, where control gates are determined by deposition steps, and the spacing between cells is determined by the thickness of deposited layers [14:13].
+
+
+
+------------------------------------------
+
+Invention and Evolution: Flash memory was invented in 1984 by Fujio Masuoka from Toshiba [00:49]. The technology evolved from requiring UV light for erasing to electrical signals for programming and erasing [00:33], leading to increased density and the development of NAND architecture [01:22].
+Multi-Level Cells (MLC): In 1997, the introduction of MLC allowed for storing more bits per cell, significantly increasing memory capacity [03:20].
+Huang's Law: From 2002 to 2010, flash memory capacity doubled every year, a phenomenon known as Huang's Law [03:54]. This surpassed Moore's Law, driven by the demands of post-PC devices [04:02].
+Manufacturing Process: The manufacturing process involves patterning bit lines and word lines [09:13]. Double patterning techniques have been used since 2007 [06:56]. NAND chips often consist of multiple dies stacked together [07:35].
+Area Efficiency: NAND flash memory has a high area efficiency, with over 80% of the die area dedicated to memory cells [08:37].
+Word Line Wrapping: Word lines wrap around bit lines to maximize gate coupling ratio and increase capacitance [12:00].
+Technology Advancement: Flash memory technology has advanced rapidly, exceeding predictions from the mid-2000s [13:44]. NAND flash has driven advancements in lithography, including the use of double and quadruple patterning [15:13].
+Feature Size: The reported feature size of 19 nanometers refers to the separation between word lines, while the separation between bit lines is larger [15:50].
