@@ -1,0 +1,45 @@
+Flash Memory News and Market
+
+Flash memory is celebrating its 25th year since invention [00:37].
+The latest flash memory chip has a 64-gigabit die, equivalent to an 8-gigabyte die [01:03].
+Flash memory companies are primarily located in the Bay Area, attracting significant venture capital [02:02].
+Common applications of flash memory include USB drives, iPods, iPhones, MacBooks, iPads, and tablets [02:46].
+The NAND flash market has grown significantly in the post-PC era [03:06].
+Cloud storage is increasingly adopting flash memory due to its power efficiency [04:13].
+Basics of Flash Memory
+
+The lecture covers four main aspects of flash memory: NAND and NOR architectures, programming and erasing flash memory cells, data retention and endurance, and multi-level flash [05:20].
+NAND vs. NOR Architectures
+
+In NOR architecture, each cell can be individually addressed using bit lines and word lines [06:05].
+NAND architecture connects cells in series, requiring all other cells to be turned on to access a specific cell [06:32].
+NAND is more compact (5F² feature size) compared to NOR (10F²) [07:00].
+NOR offers faster read times (tens of nanoseconds) compared to NAND (few microseconds) [07:42].
+The terms NAND and NOR are derived from their resemblance to NAND and NOR gate circuit diagrams [09:02].
+NAND's compact design results in lower costs, driving its market growth [11:03].
+How Flash Memory Works
+
+Flash memory traps charge in the gate stack to shift the threshold voltage [11:46].
+A floating gate, separated from the channel by a tunnel oxide, stores charge [12:57].
+The presence or absence of charge determines the current flow, allowing the cell to be read [14:12].
+High positive or negative voltage is applied to the control gate to program or erase the cell [15:02].
+Reading speed in NAND is limited by the need to turn on neighboring cells [15:45].
+The relationship between floating gate voltage, control gate voltage, and stored charge is crucial for cell operation [17:12].
+Tunneling Phenomena
+
+Tunneling is essential for programming and erasing flash memory [19:13].
+Different tunneling regimes include direct tunneling (lower voltage) and Fowler-Nordheim (FN) tunneling (high voltage) [19:29].
+Programming uses FN tunneling (high voltage), while data retention relies on minimal tunneling [20:44].
+
+_--------------_--------------_-----
+
+
+Band Diagram and Cell Programming/Erasing: The video starts by explaining how the band diagram looks, with two dielectrics: a thinner tunnel dielectric and a thicker inter-poly or blocking dielectric [00:06]. Programming a cell involves applying a high voltage, resulting in a large tunnel current in and a smaller current out [00:23]. Erasing the cell involves applying a negative voltage, which removes electrons from the floating gate [00:48].
+Threshold Voltage and Program Window: The charge builds up over time with a fixed gate voltage, achieving either a high or negative threshold voltage (VT) depending on whether the cell is being programmed or erased [01:34]. The difference between the programmed and erased VT is the total program window [01:54].
+Dielectric Materials and Retention: The top dielectric (IPD) can be a single layer of oxide or a multi-layer structure, typically ONO (oxide-nitride-oxide) [02:54]. Nitride has a higher dielectric constant than oxide, which is why ONO is used [03:08]. When the voltage is removed after programming, the negative charge develops a negative voltage on the floating gate, and the goal is to retain the cell state [03:22].
+Endurance and Cycling: Flash memory endurance refers to how many times a cell can be read and written [05:09]. Over time, with repeated cycling (programming and erasing), the program window starts to close [05:16]. This is due to trapped electrons in the tunnel dielectric, which raises the erase VT and lowers the program state [05:30].
+Stress-Induced Leakage Current (SILC): Repeated tunneling of current in and out of the device leads to stress-induced leakage current [06:40]. Multiple traps form, creating tunneling paths and increasing current in the low-voltage state, which limits retention time [06:47].
+Multi-Level Cell (MLC) Operation: Instead of storing just one bit, MLC stores multiple bits by having multiple levels within the threshold voltage window [08:45]. For example, two bits require four levels, and three bits (TLC) require eight levels [09:39]. MLC increases storage capacity but decreases the signal-to-noise ratio and makes it harder to separate cells, especially after cycling [10:33].
+Electron Storage and Technology Nodes: In 1997, the first MLC product stored around 30,000 electrons between the program and erase states, with each level corresponding to about 3,000 electrons [11:02]. At a 20-nanometer node, only about 500 electrons are stored in total, with approximately 10 electrons per state [12:46].
+Trade-offs with MLC: While MLC increases storage density, it comes with trade-offs [13:44]. The number of program/erase cycles decreases significantly (e.g., from 100k times for single-level cells to 10k or fewer times for MLC) [13:53]. Retention is poorer (one year instead of ten), and the process is slower, requiring more error correction bits [14:19].
+Current Technology and Error Correction: Companies are using a mix of single, multi, and triple-level cells with algorithms to achieve faster overall systems at a low price [15:04].
