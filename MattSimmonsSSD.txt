@@ -1,0 +1,29 @@
+. Introduction to Storage & Hard Drives (HDDs) - Expanded Notes
+
+Historical Context:
+The video emphasizes how data storage has evolved, from ancient methods like cuneiform to modern digital storage [01:51]. This historical context helps understand the need for faster and more efficient storage.
+It mentions the progression through punch cards and magnetic tape, highlighting the gradual shift towards electronic storage.
+HDD Components and Functionality:
+Platters: Magnetic disks that store data. The video explains how data is written and read using magnetic fields [04:29].
+Read/Write Heads: These hover over the platters, reading and writing data. The video discusses the precision required for these heads to function correctly.
+Actuator Arm: Moves the read/write heads across the platters.
+Spindle Motor: Rotates the platters at high speeds.
+Tracks and Cylinders: The video explains how data is organized into concentric circles (tracks) and vertical stacks of tracks (cylinders) [17:34].
+Data Access Speed: The video highlights that the speed of access is affected by the time it takes the head to move to the correct track (seek time) and the time it takes for the desired sector to rotate under the head (latency) [22:23]. Vibration of the head directly impacts read/write accuracy, and therefore speed.
+Data Storage Shift: The shift from 512-byte blocks to 4K blocks is explained as a way to improve storage efficiency and handle larger files [14:05].
+Checksum: This is a crucial aspect of data integrity, ensuring that data is not corrupted during storage or transfer [15:26].
+HDD Optimization:
+Short Stroking: By limiting data storage to the outer tracks of the platter, seek times are reduced, resulting in faster access speeds [23:46].
+Caching: Using RAM as a cache allows frequently accessed data to be stored in faster memory, improving overall performance [28:12].
+II. Introduction to SSDs and Advanced Concepts - Expanded Notes
+
+SSDs vs. HDDs:
+The fundamental difference is that SSDs use flash memory, which has no moving parts, resulting in significantly faster access speeds compared to HDDs [01:09].
+Erasure Codes:
+This advanced technique provides redundancy and data protection by distributing data across multiple drives. This ensures that data can be recovered even if one or more drives fail [02:48:47].
+SSD-Specific Concepts:
+Trim: This command allows the operating system to inform the SSD which data blocks are no longer in use, enabling the SSD to optimize its performance [02:49:50].
+Garbage Collection: This is an internal process within the SSD that reorganizes data to improve performance and prolong the lifespan of the flash memory.
+Future Trends:
+The video discusses the ongoing development of storage technology, with a focus on increasing capacity and longevity [02:50:59].
+The concept of "smart SSDs" with integrated multi-core processors is introduced, suggesting that future SSDs may be able to perform more complex data processing tasks [02:51:47].
