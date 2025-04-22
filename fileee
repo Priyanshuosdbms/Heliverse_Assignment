@@ -1,0 +1,62 @@
+Thanks! If page has 2 bits allocated, that means you want to support 4 pages per wordline (since 2 bits = 4 values). Let's integrate that into the bit layout.
+
+
+---
+
+Updated Total Bit Allocation (32 bits):
+
+
+---
+
+Final MCA Struct in C:
+
+typedef struct {
+    uint32_t cluster_offset : 2;
+    uint32_t channel        : 3;
+    uint32_t plane          : 1;
+    uint32_t bank           : 2;
+    uint32_t string         : 2;
+    uint32_t page           : 2;
+    uint32_t wordline       : 7;
+    uint32_t mba            : 13;
+} __attribute__((packed)) MCA;
+
+
+---
+
+Updated Packing Function:
+
+uint32_t pack_mca(MCA mca) {
+    return (mca.mba << 19) |
+           (mca.wordline << 12) |
+           (mca.page << 10) |
+           (mca.string << 8) |
+           (mca.bank << 6) |
+           (mca.plane << 5) |
+           (mca.channel << 2) |
+           (mca.cluster_offset);
+}
+
+
+---
+
+Updated Unpacking Function:
+
+MCA unpack_mca(uint32_t val) {
+    MCA mca;
+    mca.cluster_offset = val & 0x3;
+    mca.channel        = (val >> 2) & 0x7;
+    mca.plane          = (val >> 5) & 0x1;
+    mca.bank           = (val >> 6) & 0x3;
+    mca.string         = (val >> 8) & 0x3;
+    mca.page           = (val >> 10) & 0x3;
+    mca.wordline       = (val >> 12) & 0x7F;
+    mca.mba            = (val >> 19) & 0x1FFF;
+    return mca;
+}
+
+
+---
+
+Let me know if you'd like this integrated with lca_to_mca() and mca_to_lca() mappings using these fields.
+
