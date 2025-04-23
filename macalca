@@ -1,0 +1,46 @@
+#ifndef MCA_H
+#define MCA_H
+
+#include <stdint.h>
+
+// Simple MCA struct
+typedef struct {
+    uint32_t cluster_offset;
+    uint32_t channel;
+    uint32_t plane;
+    uint32_t bank;
+    uint32_t string;
+    uint32_t page;
+    uint32_t wordline;
+    uint32_t mba;
+} MCA;
+
+// Pack MCA into 32-bit value
+static inline uint32_t pack_mca(MCA m) {
+    return (m.mba            << 19) |
+           (m.wordline       << 12) |
+           (m.page           << 10) |
+           (m.string         << 8)  |
+           (m.bank           << 6)  |
+           (m.plane          << 5)  |
+           (m.channel        << 2)  |
+           (m.cluster_offset);
+}
+
+// Unpack 32-bit value into MCA
+static inline MCA unpack_mca(uint32_t val) {
+    MCA m;
+
+    m.cluster_offset = val & 0x3;
+    m.channel        = (val >> 2)  & 0x7;
+    m.plane          = (val >> 5)  & 0x1;
+    m.bank           = (val >> 6)  & 0x3;
+    m.string         = (val >> 8)  & 0x3;
+    m.page           = (val >> 10) & 0x3;
+    m.wordline       = (val >> 12) & 0x7F;
+    m.mba            = (val >> 19) & 0x1FFF;
+
+    return m;
+}
+
+#endif // MCA_H
