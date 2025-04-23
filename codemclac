@@ -1,0 +1,77 @@
+Perfect — that’s even easier.
+
+Your LCA is a running cluster index from 0 to 1.5 * 2^20 (which is 1.5 MB worth of 4KB clusters). So you can directly map LCA as a unit and break it down by modulus and division.
+
+
+---
+
+Let's refine based on:
+
+LCA unit: 4KB cluster
+
+LCA Range: 1.5 * 2^20 / 4KB = 384 entries (since 1.5MB / 4KB = 384)
+
+
+So LCA runs from 0 to 383 (or more if size is increased).
+
+We’ll now break the LCA number based on hardware hierarchy:
+
+
+---
+
+Updated LCA to MCA Mapping Function:
+
+MCA lca_to_mca(uint32_t lca) {
+    MCA mca;
+
+    mca.bits.cluster_offset = lca % 4;  // 4 clusters per page
+    lca /= 4;
+
+    mca.bits.channel = lca % 8;         // 8 channels
+    lca /= 8;
+
+    mca.bits.plane = lca % 2;           // 2 planes
+    lca /= 2;
+
+    mca.bits.bank = lca % 4;            // 4 banks
+    lca /= 4;
+
+    mca.bits.string = lca % 4;          // 4 strings
+    lca /= 4;
+
+    mca.bits.page = lca % 4;            // 4 pages per wordline
+    lca /= 4;
+
+    mca.bits.wordline = lca % 96;       // 96 wordlines
+    lca /= 96;
+
+    mca.bits.mba = lca;                 // remaining bits = mba
+
+    return mca;
+}
+
+
+---
+
+MCA to LCA (Reverse Mapping):
+
+uint32_t mca_to_lca(MCA mca) {
+    uint32_t lca = 0;
+
+    lca = mca.bits.mba;
+    lca = lca * 96 + mca.bits.wordline;
+    lca = lca * 4  + mca.bits.page;
+    lca = lca * 4  + mca.bits.string;
+    lca = lca * 4  + mca.bits.bank;
+    lca = lca * 2  + mca.bits.plane;
+    lca = lca * 8  + mca.bits.channel;
+    lca = lca * 4  + mca.bits.cluster_offset;
+
+    return lca;
+}
+
+
+---
+
+Let me know if you want to run through a sample LCA and decode its fields to test.
+
