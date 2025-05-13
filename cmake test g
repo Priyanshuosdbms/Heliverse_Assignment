@@ -50,3 +50,41 @@ genhtml cleaned_coverage.info --output-directory coverage_report
 # View it
 xdg-open coverage_report/index.html
 
+--&&&&---------------------_______
+
+
+# Compiler settings
+CXX = g++
+CXXFLAGS = -std=c++11 -fprofile-arcs -ftest-coverage
+LDFLAGS = -lgtest -lgtest_main -pthread -lgcov
+
+# Include paths
+INCLUDES = -I../include -I../googletest/googletest/include
+
+# Source files from all modules
+SRC_DIRS = ../firmware ../flss_simulator ../host_simulator
+C_SOURCES = $(wildcard $(addsuffix /*.c, $(SRC_DIRS)))
+
+# Test source
+TEST_SRC = test_bigfw.cpp
+
+# Output binary
+TARGET = test_bigfw
+
+all: $(TARGET)
+
+$(TARGET): $(TEST_SRC)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_SRC) $(C_SOURCES) -o $(TARGET) $(LDFLAGS)
+
+run: all
+	./$(TARGET)
+
+coverage: run
+	lcov --directory . --capture --output-file coverage.info
+	lcov --remove coverage.info '/usr/*' '*/googletest/*' --output-file cleaned.info
+	genhtml cleaned.info --output-directory coverage_report
+	xdg-open coverage_report/index.html
+
+clean:
+	rm -f $(TARGET) *.gc* *.info
+	rm -rf coverage_report
