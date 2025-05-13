@@ -1,0 +1,52 @@
+cmake_minimum_required(VERSION 3.10)
+project(BigFw C CXX)
+
+# Enable code coverage
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fprofile-arcs -ftest-coverage")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
+
+# Add include directories
+include_directories(include)
+
+# Add your code
+file(GLOB SOURCES "src/*.c")
+add_library(bigfw_lib ${SOURCES})
+
+# Add GoogleTest
+add_subdirectory(googletest)
+include_directories(googletest/googletest/include)
+
+# Enable testing
+enable_testing()
+
+# Add test executable
+file(GLOB TEST_SOURCES "test/*.cpp")
+add_executable(test_bigfw ${TEST_SOURCES})
+target_link_libraries(test_bigfw bigfw_lib gtest gtest_main pthread gcov)
+
+add_test(NAME BigFwTest COMMAND test_bigfw)
+
+
+-------_-----------------------------
+
+# Install lcov if needed
+sudo apt install lcov
+
+# Reset counters
+lcov --directory . --zerocounters
+
+# Run tests
+./test_bigfw
+
+# Capture coverage
+lcov --directory . --capture --output-file coverage.info
+
+# Clean output
+lcov --remove coverage.info '/usr/*' '*/googletest/*' --output-file cleaned_coverage.info
+
+# Generate HTML report
+genhtml cleaned_coverage.info --output-directory coverage_report
+
+# View it
+xdg-open coverage_report/index.html
+
