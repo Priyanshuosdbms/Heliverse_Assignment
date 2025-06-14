@@ -1,0 +1,8 @@
+#define SET_SF_FIELD(sf, value, spec_high_bit, spec_low_bit) \
+    do { \
+        unsigned shift = (spec_low_bit - 17); \
+        unsigned width = (spec_high_bit - spec_low_bit + 1); \
+        uint16_t mask = (1U << width) - 1; \
+        (sf) &= ~(mask << shift); \
+        (sf) |= ((value & mask) << shift); \
+    } while (0)
