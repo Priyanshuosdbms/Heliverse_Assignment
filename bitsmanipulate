@@ -6,3 +6,10 @@
         (sf) &= ~(mask << shift); \
         (sf) |= ((value & mask) << shift); \
     } while (0)
+
+
+
+#define GET_SF_FIELD(sf, spec_high_bit, spec_low_bit) \
+    ( \
+        ((sf) >> (spec_low_bit - 17)) & ((1U << ((spec_high_bit - spec_low_bit + 1))) - 1) \
+    )
