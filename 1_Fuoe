@@ -1,0 +1,16 @@
+1. declare a struct address with HNo, PIN, *aname, *areaName, and *city as its members. also create struct emp with tid, sal, *name and struct address as its members. take values from user and allocate required memory for all pointers and store the data 
+    finally print all stored data and free memory. check for memory leakage.
+2. Write a program to create structure date. 
+    Create two display functions that prints date in 2 formats. Only valid dates must be allowed to be created.
+    Create a function, pass the date. The function must compute the difference in dates in terms of number of days.
+3. Create a structure "book" to contain the following;
+    Book code
+    Book Name
+    Author Name
+    Subject
+    
+    Initialize the above structure with the following value and the display the contents after initialization.
+    C001, THE SPIRIT OF C, MULLISH COOPER, C
+
+4. Get information about ten books from the user and store it in an array of structures. Write a function to search for book based on bookid
+    int searchBook(const book *pbook,int searchbookid)
