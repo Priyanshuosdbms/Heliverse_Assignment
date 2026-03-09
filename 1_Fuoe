@@ -1,40 +1,65 @@
+
 import pdfplumber
 import json
+import re
 
-def extract_tables_to_json(pdf_path):
-    data_output = []
+def extract_with_metadata(pdf_path):
+    structured_data = []
 
     with pdfplumber.open(pdf_path) as pdf:
         for i, page in enumerate(pdf.pages):
-            # 1. Extract the tables on the page
+            # 1. Find all tables on the page
             tables = page.find_tables()
             
             for j, table in enumerate(tables):
-                # 2. Get the table boundaries to find nearby text (metadata)
-                top_boundary = table.bbox[1]
+                # Get coordinates of the table: (x0, top, x1, bottom)
+                table_bbox = table.bbox
+                table_top = table_bbox[1]
                 
-                # Capture text just above the table (e.g., "Table 1: Revenue Data")
-                # We crop the page from the top to the start of the table
-                header_area = page.crop((0, 0, page.width, top_boundary))
-                metadata_text = header_area.extract_text().split('\n')[-1] if header_area.extract_text() else f"Table_{j+1}"
+                # 2. Define a "Metadata Search Area" 
+                # We look 100 pixels above the table for the title/context
+                search_area = (0, max(0, table_top - 100), page.width, table_top)
+                context_zone = page.crop(search_area)
+                
+                # Extract text above the table and clean it
+                raw_text = context_zone.extract_text()
+                lines = [line.strip() for line in raw_text.split('\n') if line.strip()] if raw_text else []
+                
+                # Assume the last line before the table is the Title/Caption
+                table_name = lines[-1] if lines else f"Table_{i+1}_{j+1}"
+                preceding_context = " ".join(lines[:-1]) if len(lines) > 1 else ""
 
-                # 3. Extract the actual table data
-                table_data = table.extract()
+                # 3. Extract actual table data
+                table_content = table.extract()
                 
-                # 4. Structure the JSON object
-                table_entry = {
-                    "page_number": i + 1,
-                    "table_name": metadata_text.strip(),
+                # Handle empty tables
+                if not table_content:
+                    continue
+
+                # 4. Construct the JSON entry
+                entry = {
+                    "id": f"pg{i+1}_tbl{j+1}",
+                    "table_name": table_name,
+                    "page": i + 1,
                     "metadata": {
-                        "total_rows": len(table_data),
-                        "total_cols": len(table_data[0]) if table_data else 0
+                        "context": preceding_context,
+                        "location": table_bbox,
+                        "rows": len(table_content),
+                        "cols": len(table_content[0])
                     },
-                    "content": table_data
+                    "header": table_content[0],
+                    "rows": table_content[1:]
                 }
-                data_output.append(table_entry)
+                structured_data.append(entry)
 
-    return json.dumps(data_output, indent=4)
+    return structured_data
 
-# Usage
-# json_result = extract_tables_to_json("your_file.pdf")
-# print(json_result)
+# --- Execution ---
+pdf_file = "your_document.pdf"
+results = extract_with_metadata(pdf_file)
+
+# Save to JSON file
+with open("extracted_tables.json", "w") as f:
+    json.dump(results, f, indent=4)
+
+print(f"Successfully extracted {len(results)} tables to JSON.")
