@@ -1,13 +1,40 @@
-python3 -m llama_cpp.server \
-  --model /usr/share/ollama/.ollama/models/blobs/sha256:YOUR_HASH_HERE \
-  --host 0.0.0.0 \
-  --port 8000
+import pdfplumber
+import json
 
+def extract_tables_to_json(pdf_path):
+    data_output = []
 
-    vllm serve /usr/share/ollama/.ollama/models/blobs/sha256:YOUR_HASH_HERE \
-  --served-model-name smol-135m \
-  --tokenizer_mode simple \
-  --port 8000
+    with pdfplumber.open(pdf_path) as pdf:
+        for i, page in enumerate(pdf.pages):
+            # 1. Extract the tables on the page
+            tables = page.find_tables()
+            
+            for j, table in enumerate(tables):
+                # 2. Get the table boundaries to find nearby text (metadata)
+                top_boundary = table.bbox[1]
+                
+                # Capture text just above the table (e.g., "Table 1: Revenue Data")
+                # We crop the page from the top to the start of the table
+                header_area = page.crop((0, 0, page.width, top_boundary))
+                metadata_text = header_area.extract_text().split('\n')[-1] if header_area.extract_text() else f"Table_{j+1}"
 
+                # 3. Extract the actual table data
+                table_data = table.extract()
+                
+                # 4. Structure the JSON object
+                table_entry = {
+                    "page_number": i + 1,
+                    "table_name": metadata_text.strip(),
+                    "metadata": {
+                        "total_rows": len(table_data),
+                        "total_cols": len(table_data[0]) if table_data else 0
+                    },
+                    "content": table_data
+                }
+                data_output.append(table_entry)
 
-ls -lhS /usr/share/ollama/.ollama/models/blobs | head -n 5
+    return json.dumps(data_output, indent=4)
+
+# Usage
+# json_result = extract_tables_to_json("your_file.pdf")
+# print(json_result)
