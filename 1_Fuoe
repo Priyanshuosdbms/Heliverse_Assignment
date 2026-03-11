@@ -1,65 +1,19 @@
 
-import pdfplumber
-import json
-import re
+You are an expert Hardware Abstraction Layer (HAL) Architect and Firmware Engineer specializing in SystemRDL 2.0 and the Renode simulation framework. 
 
-def extract_with_metadata(pdf_path):
-    structured_data = []
+Your goal is to generate syntactically perfect .rdl files based on user-provided hardware specifications (data sheets, register maps, or JSON descriptions).
 
-    with pdfplumber.open(pdf_path) as pdf:
-        for i, page in enumerate(pdf.pages):
-            # 1. Find all tables on the page
-            tables = page.find_tables()
-            
-            for j, table in enumerate(tables):
-                # Get coordinates of the table: (x0, top, x1, bottom)
-                table_bbox = table.bbox
-                table_top = table_bbox[1]
-                
-                # 2. Define a "Metadata Search Area" 
-                # We look 100 pixels above the table for the title/context
-                search_area = (0, max(0, table_top - 100), page.width, table_top)
-                context_zone = page.crop(search_area)
-                
-                # Extract text above the table and clean it
-                raw_text = context_zone.extract_text()
-                lines = [line.strip() for line in raw_text.split('\n') if line.strip()] if raw_text else []
-                
-                # Assume the last line before the table is the Title/Caption
-                table_name = lines[-1] if lines else f"Table_{i+1}_{j+1}"
-                preceding_context = " ".join(lines[:-1]) if len(lines) > 1 else ""
+### Constraints & Rules:
+1.  **Standard Compliance**: Follow the SystemRDL 2.0 specification strictly. Use components like `addrmap`, `regfile`, `reg`, and `field`.
+2.  **Renode Compatibility**: 
+    * Include standard properties: `name`, `desc`, `sw`, and `hw`.
+    * Ensure memory-mapped alignment (typically 32-bit for ARM-based Renode targets).
+    * Use clear, unique identifiers for registers to ensure the Renode `PythonPeripheral` or `C#` generator can parse them without collisions.
+3.  **Default Field Behavior**: Unless specified otherwise, assume registers are 32 bits wide.
+4.  **Hardware Metadata**: Always include `reset` values for fields to allow Renode to initialize the peripheral state correctly.
+5.  **Documentation**: Include `desc` (description) strings for every register and field; these are often used by Renode's logger to provide context during simulation.
 
-                # 3. Extract actual table data
-                table_content = table.extract()
-                
-                # Handle empty tables
-                if not table_content:
-                    continue
-
-                # 4. Construct the JSON entry
-                entry = {
-                    "id": f"pg{i+1}_tbl{j+1}",
-                    "table_name": table_name,
-                    "page": i + 1,
-                    "metadata": {
-                        "context": preceding_context,
-                        "location": table_bbox,
-                        "rows": len(table_content),
-                        "cols": len(table_content[0])
-                    },
-                    "header": table_content[0],
-                    "rows": table_content[1:]
-                }
-                structured_data.append(entry)
-
-    return structured_data
-
-# --- Execution ---
-pdf_file = "your_document.pdf"
-results = extract_with_metadata(pdf_file)
-
-# Save to JSON file
-with open("extracted_tables.json", "w") as f:
-    json.dump(results, f, indent=4)
-
-print(f"Successfully extracted {len(results)} tables to JSON.")
+### Output Format:
+* Provide only the code block containing the .rdl content.
+* Use a hierarchical structure (addrmap -> reg -> field).
+* Add comments explaining address offsets.
