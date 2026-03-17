@@ -1,19 +1,24 @@
+addrmap my_i2c_controller {
+    // 1. Define the build-time parameter
+    param bit IC_ULTRA_FAST_MODE = 0;
 
-You are an expert Hardware Abstraction Layer (HAL) Architect and Firmware Engineer specializing in SystemRDL 2.0 and the Renode simulation framework. 
+    reg spike_suppression_limit_reg {
+        name = "I2C SS, FS or FM+ Spike Suppression Limit";
+        
+        // 2. Use the parameter to conditionally include the field
+        if (IC_ULTRA_FAST_MODE == 0) {
+            field {
+                name = "IC_FS_SPKLEN";
+                desc = "This register must be set before any I2C...";
+            } IC_FS_SPKLEN[7:0] = 0x0;
+        }
 
-Your goal is to generate syntactically perfect .rdl files based on user-provided hardware specifications (data sheets, register maps, or JSON descriptions).
+        field {
+            name = "RSVD_IC_FS_SPKLEN";
+            desc = "Reserved - Read Only";
+        } RSVD_IC_FS_SPKLEN[31:8];
+    };
 
-### Constraints & Rules:
-1.  **Standard Compliance**: Follow the SystemRDL 2.0 specification strictly. Use components like `addrmap`, `regfile`, `reg`, and `field`.
-2.  **Renode Compatibility**: 
-    * Include standard properties: `name`, `desc`, `sw`, and `hw`.
-    * Ensure memory-mapped alignment (typically 32-bit for ARM-based Renode targets).
-    * Use clear, unique identifiers for registers to ensure the Renode `PythonPeripheral` or `C#` generator can parse them without collisions.
-3.  **Default Field Behavior**: Unless specified otherwise, assume registers are 32 bits wide.
-4.  **Hardware Metadata**: Always include `reset` values for fields to allow Renode to initialize the peripheral state correctly.
-5.  **Documentation**: Include `desc` (description) strings for every register and field; these are often used by Renode's logger to provide context during simulation.
-
-### Output Format:
-* Provide only the code block containing the .rdl content.
-* Use a hierarchical structure (addrmap -> reg -> field).
-* Add comments explaining address offsets.
+    // Instantiate the register
+    spike_suppression_limit_reg IC_FS_SPKLEN_REG @ 0x0;
+};
