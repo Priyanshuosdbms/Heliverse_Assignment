@@ -1,24 +1,63 @@
-addrmap my_i2c_controller {
-    // 1. Define the build-time parameter
-    param bit IC_ULTRA_FAST_MODE = 0;
+addrmap dw_i2c_ctrl #(
+    /* These replace your C Macros/Parameters */
+    bit I2C_DYNAMIC_TAR_UPDATE = 0,
+    bit [1:0] IC_MAX_SPEED_MODE = 2'h2,
+    bit IC_SLAVE_DISABLE_BOOT = 1,
+    bit IC_RESTART_EN_BOOT = 1,
+    bit IC_MASTER_MODE_BOOT = 1
+) {
+    name = "DesignWare I2C Controller";
 
-    reg spike_suppression_limit_reg {
-        name = "I2C SS, FS or FM+ Spike Suppression Limit";
-        
-        // 2. Use the parameter to conditionally include the field
-        if (IC_ULTRA_FAST_MODE == 0) {
-            field {
-                name = "IC_FS_SPKLEN";
-                desc = "This register must be set before any I2C...";
-            } IC_FS_SPKLEN[7:0] = 0x0;
-        }
+    reg {
+        name = "I2C Control Register";
+        desc = "Address Offset: 0x00. Only writable when IC_ENABLE == 0.";
+
+        field { desc = "Reserved"; } Reserved[15:7] = 0;
 
         field {
-            name = "RSVD_IC_FS_SPKLEN";
-            desc = "Reserved - Read Only";
-        } RSVD_IC_FS_SPKLEN[31:8];
-    };
+            name = "IC_SLAVE_DISABLE";
+            desc = "Controls whether I2C has its slave disabled.";
+            hw = rw; sw = rw;
+            reset = IC_SLAVE_DISABLE_BOOT;
+        } IC_SLAVE_DISABLE[6:6];
 
-    // Instantiate the register
-    spike_suppression_limit_reg IC_FS_SPKLEN_REG @ 0x0;
+        field {
+            name = "IC_RESTART_EN";
+            hw = rw; sw = rw;
+            reset = IC_RESTART_EN_BOOT;
+        } IC_RESTART_EN[5:5];
+
+        /* Conditional logic for Bit 4 */
+        field {
+            desc = "Master Addressing Mode (7 or 10 bit)";
+            hw = rw;
+            // Access and name logic handled by the parameter
+            if (I2C_DYNAMIC_TAR_UPDATE == 1) {
+                sw = r; 
+            } else {
+                sw = rw;
+            }
+        } IC_10BITADDR_MASTER[4:4];
+
+        field {
+            name = "IC_10BITADDR_SLAVE";
+            hw = rw; sw = rw;
+        } IC_10BITADDR_SLAVE[3:3];
+
+        field {
+            name = "SPEED";
+            hw = rw; sw = rw;
+            reset = IC_MAX_SPEED_MODE;
+        } SPEED[2:1];
+
+        field {
+            name = "MASTER_MODE";
+            hw = rw; sw = rw;
+            reset = IC_MASTER_MODE_BOOT;
+        } MASTER_MODE[0:0];
+
+    } IC_CON @ 0x00;
 };
+
+/* Crucial: You must instantiate the map for the generator to see it */
+instantiate dw_i2c_ctrl as i2c_regs;
