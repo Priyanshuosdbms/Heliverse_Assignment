@@ -1,10 +1,11 @@
-addrmap dw_i2c_ctrl #(
-    /* These replace your C Macros/Parameters */
-    bit I2C_DYNAMIC_TAR_UPDATE = 0,
-    bit [1:0] IC_MAX_SPEED_MODE = 2'h2,
-    bit IC_SLAVE_DISABLE_BOOT = 1,
-    bit IC_RESTART_EN_BOOT = 1,
-    bit IC_MASTER_MODE_BOOT = 1
+
+       
+ addrmap dw_i2c_ctrl #(
+    longint unsigned I2C_DYNAMIC_TAR_UPDATE = 0,
+    longint unsigned IC_MAX_SPEED_MODE = 2,
+    longint unsigned IC_SLAVE_DISABLE_BOOT = 1,
+    longint unsigned IC_RESTART_EN_BOOT = 1,
+    longint unsigned IC_MASTER_MODE_BOOT = 1
 ) {
     name = "DesignWare I2C Controller";
 
@@ -16,7 +17,6 @@ addrmap dw_i2c_ctrl #(
 
         field {
             name = "IC_SLAVE_DISABLE";
-            desc = "Controls whether I2C has its slave disabled.";
             hw = rw; sw = rw;
             reset = IC_SLAVE_DISABLE_BOOT;
         } IC_SLAVE_DISABLE[6:6];
@@ -27,17 +27,20 @@ addrmap dw_i2c_ctrl #(
             reset = IC_RESTART_EN_BOOT;
         } IC_RESTART_EN[5:5];
 
-        /* Conditional logic for Bit 4 */
-        field {
-            desc = "Master Addressing Mode (7 or 10 bit)";
-            hw = rw;
-            // Access and name logic handled by the parameter
-            if (I2C_DYNAMIC_TAR_UPDATE == 1) {
-                sw = r; 
-            } else {
-                sw = rw;
-            }
-        } IC_10BITADDR_MASTER[4:4];
+        /* Use an IF block to define field access */
+        if (I2C_DYNAMIC_TAR_UPDATE == 1) {
+            field {
+                name = "IC_10BITADDR_MASTER_RDONLY";
+                desc = "Read-only copy because I2C_DYNAMIC_TAR_UPDATE is 1.";
+                hw = w; sw = r;
+            } IC_10BITADDR_MASTER[4:4];
+        } else {
+            field {
+                name = "IC_10BITADDR_MASTER";
+                desc = "Read/Write bit because I2C_DYNAMIC_TAR_UPDATE is 0.";
+                hw = rw; sw = rw;
+            } IC_10BITADDR_MASTER[4:4];
+        }
 
         field {
             name = "IC_10BITADDR_SLAVE";
@@ -59,5 +62,4 @@ addrmap dw_i2c_ctrl #(
     } IC_CON @ 0x00;
 };
 
-/* Crucial: You must instantiate the map for the generator to see it */
 instantiate dw_i2c_ctrl as i2c_regs;
