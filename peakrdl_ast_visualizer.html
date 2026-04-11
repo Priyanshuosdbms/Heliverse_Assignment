@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>PeakRDL-renode AST Visualizer</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#f5f5f4;color:#1a1a18;font-size:14px;padding:1rem}
+h1{font-size:16px;font-weight:500;margin-bottom:4px}
+.sub{font-size:12px;color:#73726c;margin-bottom:14px}
+.toolbar{display:flex;gap:6px;margin-bottom:10px;align-items:center}
+.toolbar input{flex:1;font-size:12px;padding:5px 8px;border:1px solid #d3d1c7;border-radius:6px;background:#fff;color:#1a1a18}
+.toolbar button{font-size:11px;padding:5px 10px;border:1px solid #d3d1c7;border-radius:6px;cursor:pointer;background:#fff;color:#5f5e5a}
+.toolbar button:hover{background:#f1efe8}
+.panels{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.panel{border:1px solid #d3d1c7;border-radius:10px;overflow:hidden;background:#fff}
+.panel-head{padding:7px 12px;border-bottom:1px solid #d3d1c7;display:flex;align-items:center;gap:7px;background:#f9f8f5}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.panel-title{font-size:12px;font-weight:500}
+.panel-body{padding:10px;min-height:420px;overflow:auto;max-height:540px}
+.tree-node{}
+.tree-row{display:flex;align-items:center;gap:4px;padding:2px 5px;border-radius:4px;cursor:pointer;white-space:nowrap}
+.tree-row:hover{background:#f1efe8}
+.tree-row.selected{background:#e6f1fb}
+.toggle{width:14px;height:14px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#888}
+.chip{font-size:10px;font-weight:500;padding:1px 5px;border-radius:10px;flex-shrink:0}
+/* RDL chips */
+.c-addrmap{background:#eeedfe;color:#3c3489}
+.c-regfile{background:#e1f5ee;color:#085041}
+.c-reg{background:#e6f1fb;color:#0c447c}
+.c-field{background:#faeeda;color:#633806}
+.c-mem{background:#faece7;color:#712b13}
+/* CS chips */
+.c-cs-namespace{background:#eeedfe;color:#3c3489}
+.c-cs-class{background:#e1f5ee;color:#085041}
+.c-cs-struct{background:#eaf3de;color:#27500a}
+.c-cs-method{background:#e6f1fb;color:#0c447c}
+.c-cs-property{background:#faeeda;color:#633806}
+.c-cs-field{background:#f1efe8;color:#444441}
+.c-cs-call{background:#fcebeb;color:#791f1f}
+.c-cs-assign{background:#fbeaf0;color:#72243e}
+.node-lbl{font-size:12px;font-family:monospace}
+.node-meta{font-size:11px;color:#888;font-family:monospace;margin-left:2px}
+.children{padding-left:16px;border-left:1px solid #e8e7e0;margin-left:7px}
+.detail{margin-top:8px;padding:10px 12px;border:1px solid #d3d1c7;border-radius:8px;background:#f9f8f5;min-height:48px}
+.detail-title{font-size:12px;font-weight:500;margin-bottom:5px}
+.drows{display:flex;flex-wrap:wrap;gap:4px 14px}
+.drow{font-size:11px;color:#73726c}
+.drow span{color:#1a1a18;font-family:monospace}
+.legend{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.legend-group{font-size:11px;color:#73726c;display:flex;align-items:center;gap:3px}
+</style>
+</head>
+<body>
+<h1>PeakRDL-renode — dual AST visualizer</h1>
+<p class="sub">Left: RDL design tree (systemrdl nodes). Right: C# AST produced by CSharpGenerator. Click nodes to inspect properties.</p>
+
+<div class="legend">
+  <span class="chip c-addrmap">addrmap</span>
+  <span class="chip c-reg">reg</span>
+  <span class="chip c-field">field</span>
+  <span class="chip c-mem">mem</span>
+  &nbsp;&nbsp;
+  <span class="chip c-cs-namespace">namespace</span>
+  <span class="chip c-cs-class">class</span>
+  <span class="chip c-cs-struct">struct</span>
+  <span class="chip c-cs-method">method</span>
+  <span class="chip c-cs-field">field</span>
+  <span class="chip c-cs-call">call</span>
+  <span class="chip c-cs-assign">assign</span>
+</div>
+
+<div class="toolbar">
+  <input id="rdl-input" placeholder='addrmap "MyPeripheral" { reg "CTRL" { field "EN" [0] {}; field "MODE" [2:1] {}; }; }'/>
+  <button onclick="parseAndRender()">Parse ↗</button>
+  <button onclick="loadExample()">Load example</button>
+</div>
+
+<div class="panels">
+  <div class="panel">
+    <div class="panel-head"><div class="dot" style="background:#7f77dd"></div><div class="panel-title">RDL design tree (systemrdl nodes)</div></div>
+    <div class="panel-body" id="rdl-tree"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><div class="dot" style="background:#1d9e75"></div><div class="panel-title">C# AST (CSharpGenerator → csharp/ast.py)</div></div>
+    <div class="panel-body" id="cs-tree"></div>
+  </div>
+</div>
+
+<div class="detail" id="detail">
+  <div class="detail-title" id="detail-title">Select a node to inspect its properties</div>
+  <div class="drows" id="detail-rows"></div>
+</div>
+
+<script>
+const EXAMPLE = {
+  type:'addrmap', name:'MyPeripheral', meta:{base_addr:'0x0', inst:'MyPeripheral'},
+  children:[
+    { type:'reg', name:'CTRL', meta:{offset:'0x0', reset:'0x0', width:'32', sw:'rw'},
+      children:[
+        { type:'field', name:'EN',   meta:{bits:'[0]',    sw:'rw', hw:'r', reset:'0x0', onread:'-', onwrite:'-'} },
+        { type:'field', name:'MODE', meta:{bits:'[2:1]',  sw:'rw', hw:'r', reset:'0x0', onread:'-', onwrite:'-'} },
+        { type:'field', name:'RSVD', meta:{bits:'[31:3]', sw:'r',  hw:'na',reset:'0x0', onread:'-', onwrite:'-'} }
+      ]
+    },
+    { type:'reg', name:'STATUS', meta:{offset:'0x4', reset:'0x0', width:'32', sw:'r'},
+      children:[
+        { type:'field', name:'BUSY',  meta:{bits:'[0]',   sw:'r',    hw:'w',  reset:'0x0', onread:'-',    onwrite:'-'} },
+        { type:'field', name:'ERR',   meta:{bits:'[1]',   sw:'rclr', hw:'w',  reset:'0x0', onread:'rclr', onwrite:'-'} },
+        { type:'field', name:'COUNT', meta:{bits:'[7:2]', sw:'r',    hw:'w',  reset:'0x0', onread:'-',    onwrite:'-'} }
+      ]
+    },
+    { type:'reg', name:'DATA', meta:{offset:'0x8', reset:'0x0', width:'32', sw:'rw'},
+      children:[
+        { type:'field', name:'PAYLOAD', meta:{bits:'[31:0]', sw:'rw', hw:'rw', reset:'0x0', onread:'-', onwrite:'-'} }
+      ]
+    }
+  ]
+};
+
+function buildCsAst(rdl) {
+  const p = rdl.name;
+  return {
+    type:'cs-namespace', name:'Antmicro.Renode.Peripherals.X',
+    meta:{source:'__peakrdl__.py → cs_exporter.py'},
+    children:[{
+      type:'cs-class', name:p+' (partial)',
+      meta:{derives:'IProvidesRegisterCollection<DoubleWordRegisterCollection>, IPeripheral, IDoubleWordPeripheral', partial:'true'},
+      children:[
+        { type:'cs-property', name:'RegistersCollection', meta:{type:'DoubleWordRegisterCollection', access:'public', get:'true'} },
+        ...rdl.children.filter(n=>n.type==='reg').map(r=>({
+          type:'cs-field', name:r.name, meta:{type:r.name+'_Type', access:'protected', doc:`"${r.name}" at ${r.meta.offset}`}
+        })),
+        { type:'cs-method', name:p+' (ctor)',
+          meta:{access:'public', source:'CSharpGenerator.__init__'},
+          children:[
+            { type:'cs-assign', name:'RegistersCollection = new DoubleWordRegisterCollection(this)', meta:{} },
+            ...rdl.children.filter(n=>n.type==='reg').map(r=>({
+              type:'cs-assign', name:r.name+' = new '+r.name+'_Type(this)', meta:{}
+            })),
+            { type:'cs-call', name:'this.Init()', meta:{} }
+          ]
+        },
+        { type:'cs-method', name:'IDoubleWordPeripheral.ReadDoubleWord',
+          meta:{ret:'uint', args:'long offset', source:'generate_read_method()'},
+          children:[{ type:'cs-call', name:'RegistersCollection.Read(offset)', meta:{} }]
+        },
+        { type:'cs-method', name:'IDoubleWordPeripheral.WriteDoubleWord',
+          meta:{ret:'void', args:'long offset, uint value', source:'generate_write_method()'},
+          children:[{ type:'cs-call', name:'RegistersCollection.Write(offset, value)', meta:{} }]
+        },
+        { type:'cs-method', name:'Init',   meta:{access:'partial', source:'generate_value_container_class()'} },
+        { type:'cs-method', name:'Reset',  meta:{access:'partial'} },
+        { type:'cs-method', name:'IPeripheral.Reset', meta:{ret:'void'},
+          children:[
+            { type:'cs-call', name:'this.Reset()', meta:{} },
+            { type:'cs-call', name:'RegistersCollection.Reset()', meta:{} }
+          ]
+        },
+        ...rdl.children.filter(n=>n.type==='reg').map(r=>({
+          type:'cs-struct', name:r.name+'_Type',
+          meta:{access:'public', source:'generate_value_container_class(reg)'},
+          children:[
+            ...r.children.map(f=>{
+              const isFlag = f.meta.bits && (f.meta.bits.match(/^\[(\d+)\]$/) !== null);
+              return { type:'cs-field', name:f.name, meta:{type: isFlag ? 'IFlagRegisterField' : 'IValueRegisterField', access:'public'} };
+            }),
+            { type:'cs-method', name:r.name+'_Type (ctor)',
+              meta:{args:'IProvidesRegisterCollection parent', source:'generate_field_decl()'},
+              children:[
+                { type:'cs-call',
+                  name:`parent.RegistersCollection.DefineRegister(${r.meta.offset}, ${r.meta.reset}, true)`,
+                  meta:{source:'DefineRegister call'},
+                  children: r.children.map(f=>{
+                    const isFlag = f.meta.bits && (f.meta.bits.match(/^\[(\d+)\]$/) !== null);
+                    const method = isFlag ? 'WithFlag' : 'WithValueField';
+                    return { type:'cs-call', name:`.${method}(out ${f.name}, name:"${f.name}")`, meta:{sw: f.meta.sw||'rw', onread: f.meta.onread||'-'} };
+                  })
+                }
+              ]
+            }
+          ]
+        }))
+      ]
+    }]
+  };
+}
+
+let rdlData = EXAMPLE;
+let csData  = buildCsAst(EXAMPLE);
+let selectedId = null;
+const expanded = new Set(['rdl_0_MyPeripheral','rdl_1_CTRL','rdl_1_STATUS','rdl_1_DATA','cs_0_Antmicro.Renode.Peripherals.X','cs_1_MyPeripheral (partial)']);
+
+function chipClass(type){ const m={'addrmap':'c-addrmap','regfile':'c-regfile','reg':'c-reg','field':'c-field','mem':'c-mem','cs-namespace':'c-cs-namespace','cs-class':'c-cs-class','cs-struct':'c-cs-struct','cs-method':'c-cs-method','cs-property':'c-cs-property','cs-field':'c-cs-field','cs-call':'c-cs-call','cs-assign':'c-cs-assign'}; return 'chip '+(m[type]||'c-cs-field'); }
+function chipLabel(type){ return type.replace('cs-',''); }
+
+function renderNode(node, depth, prefix){
+  const id = prefix+'_'+depth+'_'+node.name;
+  const hasKids = node.children && node.children.length > 0;
+  const open = expanded.has(id) || depth < 1;
+
+  const div = document.createElement('div'); div.className='tree-node';
+  const row = document.createElement('div');
+  row.className = 'tree-row'+(selectedId===id?' selected':'');
+  row.onclick = e => {
+    e.stopPropagation();
+    selectedId = id;
+    if(hasKids){ open ? expanded.delete(id) : expanded.add(id); }
+    showDetail(node);
+    rerenderBoth();
+  };
+
+  const tog = document.createElement('div'); tog.className='toggle';
+  tog.textContent = hasKids ? (open?'▾':'▸') : '·';
+
+  const chip = document.createElement('span'); chip.className=chipClass(node.type); chip.textContent=chipLabel(node.type);
+  const lbl  = document.createElement('span'); lbl.className='node-lbl'; lbl.textContent=node.name;
+  row.append(tog,chip,lbl);
+
+  if(node.meta){
+    const first = Object.entries(node.meta)[0];
+    if(first){
+      const m=document.createElement('span'); m.className='node-meta'; m.textContent=' '+first[1];
+      row.append(m);
+    }
+  }
+  div.append(row);
+
+  if(hasKids && open){
+    const ch=document.createElement('div'); ch.className='children';
+    node.children.forEach(c=>ch.append(renderNode(c,depth+1,id)));
+    div.append(ch);
+  }
+  return div;
+}
+
+function showDetail(node){
+  document.getElementById('detail-title').textContent = '['+node.type+'] '+node.name;
+  const rows=document.getElementById('detail-rows'); rows.innerHTML='';
+  if(node.meta) Object.entries(node.meta).forEach(([k,v])=>{
+    const d=document.createElement('div'); d.className='drow';
+    d.innerHTML=k+': <span>'+v+'</span>'; rows.append(d);
+  });
+  if(node.children){
+    const d=document.createElement('div'); d.className='drow';
+    d.innerHTML='children: <span>'+node.children.length+'</span>'; rows.append(d);
+  }
+}
+
+function rerenderBoth(){
+  ['rdl-tree','cs-tree'].forEach(id=>document.getElementById(id).innerHTML='');
+  document.getElementById('rdl-tree').append(renderNode(rdlData,0,'rdl'));
+  document.getElementById('cs-tree').append(renderNode(csData,0,'cs'));
+}
+
+function parseRdlText(text){
+  const am=text.match(/addrmap\s+"?(\w+)"?\s*\{([\s\S]*)\}/);
+  if(!am) return null;
+  const result={type:'addrmap',name:am[1],meta:{base_addr:'0x0',inst:am[1]},children:[]};
+  const body=am[2];
+  const regRe=/reg\s+"?(\w+)"?\s+(?:@(0x[\da-fA-F]+)\s*)?\{([^}]*)\}/g;
+  let rm; let off=0;
+  while((rm=regRe.exec(body))!==null){
+    const rn={type:'reg',name:rm[1],meta:{offset:rm[2]||('0x'+off.toString(16)),reset:'0x0',width:'32',sw:'rw'},children:[]};
+    const fb=rm[3];
+    const fieldRe=/field\s+["\s]*(\w+)["\s]*\[([^\]]+)\]/g; let fm;
+    while((fm=fieldRe.exec(fb))!==null){
+      rn.children.push({type:'field',name:fm[1],meta:{bits:'['+fm[2]+']',sw:'rw',hw:'r',reset:'0x0',onread:'-',onwrite:'-'}});
+    }
+    if(!rn.children.length) rn.children.push({type:'field',name:'DATA',meta:{bits:'[31:0]',sw:'rw',hw:'r',reset:'0x0',onread:'-',onwrite:'-'}});
+    result.children.push(rn); off+=4;
+  }
+  return result.children.length?result:null;
+}
+
+function parseAndRender(){
+  const text=document.getElementById('rdl-input').value.trim();
+  if(!text) return;
+  const p=parseRdlText(text);
+  if(!p){alert('Could not parse. Use:\naddrmap "Name" { reg "REG" { field "F" [0] {}; }; }'); return;}
+  rdlData=p; csData=buildCsAst(p); expanded.clear(); rerenderBoth();
+}
+
+function loadExample(){
+  document.getElementById('rdl-input').value='addrmap "MyPeripheral" { reg "CTRL" { field "EN" [0] {}; field "MODE" [2:1] {}; }; reg "STATUS" { field "BUSY" [0] {}; field "ERR" [1] {}; }; }';
+  rdlData=EXAMPLE; csData=buildCsAst(EXAMPLE); expanded.clear();
+  ['CTRL','STATUS','DATA'].forEach(n=>{ expanded.add('rdl_0_MyPeripheral'); expanded.add('rdl_1_MyPeripheral_0_'+n); });
+  rerenderBoth();
+}
+
+rerenderBoth();
+</script>
+</body>
+</html>

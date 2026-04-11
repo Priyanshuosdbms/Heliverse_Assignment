@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>PeakRDL-renode AST Visualizer (Fixed)</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:system-ui,sans-serif;background:#f1efe8;color:#1a1a18;font-size:13px;display:flex;flex-direction:column}
+
+/* top bar */
+#topbar{display:flex;align-items:center;gap:10px;padding:8px 14px;background:#fff;border-bottom:1px solid #d3d1c7;flex-shrink:0;flex-wrap:wrap}
+#topbar h1{font-size:13px;font-weight:600;white-space:nowrap}
+.sep{width:1px;height:18px;background:#d3d1c7;flex-shrink:0}
+.sub{font-size:11px;color:#73726c;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#upload-btn{display:flex;align-items:center;gap:5px;padding:4px 10px;border:1px solid #d3d1c7;border-radius:6px;cursor:pointer;background:#fff;color:#1a1a18;font-size:11px;white-space:nowrap;font-family:inherit;user-select:none}
+#upload-btn:hover{background:#f1efe8}
+#file-input{display:none}
+#filename{font-size:11px;color:#73726c;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;min-width:60px}
+.apply-btn{padding:4px 11px;border:1px solid #7f77dd;border-radius:6px;cursor:pointer;background:#7f77dd;color:#fff;font-size:11px;font-family:inherit;white-space:nowrap}
+.apply-btn:hover{background:#534ab7}
+.load-eg{padding:4px 10px;border:1px solid #d3d1c7;border-radius:6px;cursor:pointer;background:#fff;color:#5f5e5a;font-size:11px;font-family:inherit;white-space:nowrap}
+.load-eg:hover{background:#f1efe8}
+
+/* status bar */
+#statusbar{display:flex;align-items:center;gap:8px;padding:3px 14px;background:#f9f8f5;border-bottom:1px solid #d3d1c7;flex-shrink:0;min-height:24px}
+#status-msg{font-size:11px;color:#73726c;flex:1}
+#status-msg.ok{color:#0f6e56}
+#status-msg.err{color:#a32d2d}
+.stat-pill{font-size:10px;padding:1px 7px;border-radius:8px;background:#f1efe8;color:#5f5e5a;border:1px solid #d3d1c7;white-space:nowrap}
+
+/* three-column main */
+#main{display:grid;grid-template-columns:1fr 1fr 1fr;flex:1;overflow:hidden;min-height:0}
+.pane{display:flex;flex-direction:column;border-right:1px solid #d3d1c7;overflow:hidden}
+.pane:last-child{border-right:none}
+.pane-head{display:flex;align-items:center;gap:6px;padding:6px 10px;background:#f9f8f5;border-bottom:1px solid #d3d1c7;flex-shrink:0}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.pane-title{font-size:11px;font-weight:600;flex:1}
+.pane-hint{font-size:10px;color:#b4b2a9}
+.pane-body{flex:1;overflow:auto;position:relative;min-height:0}
+
+/* editor */
+#editor-wrap{position:relative;height:100%;display:flex}
+#line-nums{width:36px;background:#f9f8f5;border-right:1px solid #e8e7e0;padding:10px 6px 10px 0;font-family:ui-monospace,monospace;font-size:12px;line-height:1.6;color:#b4b2a9;text-align:right;flex-shrink:0;overflow:hidden;white-space:pre;user-select:none;display:none}
+#editor{flex:1;resize:none;border:none;outline:none;background:#fff;font-family:ui-monospace,monospace;font-size:12px;line-height:1.6;color:#1a1a18;padding:10px;tab-size:2;display:none}
+
+/* tree */
+.tree-panel-body{padding:8px;background:#fff;min-height:100%}
+.tree-row{display:flex;align-items:flex-start;gap:4px;padding:2px 5px;border-radius:4px;cursor:pointer}
+.tree-row:hover{background:#f1efe8}
+.tree-row.selected{background:#e6f1fb}
+.toggle{width:13px;height:18px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#888;flex-shrink:0;margin-top:1px}
+.chip{font-size:9px;font-weight:600;padding:1px 5px;border-radius:8px;flex-shrink:0;margin-top:2px;letter-spacing:.03em;text-transform:uppercase}
+.c-addrmap{background:#eeedfe;color:#3c3489}
+.c-regfile{background:#e1f5ee;color:#085041}
+.c-reg{background:#e6f1fb;color:#0c447c}
+.c-field{background:#faeeda;color:#633806}
+.node-lbl{font-size:11px;font-family:ui-monospace,monospace;color:#1a1a18;word-break:break-all;line-height:1.5}
+.node-meta{font-size:10px;color:#888;font-family:ui-monospace,monospace;margin-left:3px;line-height:1.5}
+.children{padding-left:14px;border-left:1px solid #e8e7e0;margin-left:6px}
+
+/* detail bar */
+#detail{flex-shrink:0;padding:5px 14px;border-top:1px solid #d3d1c7;background:#f9f8f5;min-height:34px;display:flex;align-items:flex-start;gap:12px}
+#detail-title{font-size:11px;font-weight:600;white-space:nowrap;padding-top:1px;min-width:120px}
+#detail-rows{display:flex;flex-wrap:wrap;gap:2px 14px;flex:1}
+.drow{font-size:10px;color:#73726c}
+.drow span{color:#1a1a18;font-family:ui-monospace,monospace}
+
+/* placeholders & overlay */
+#upload-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:14px;color:#b4b2a9;padding:20px;background:#fff}
+#upload-placeholder b{color:#7f77dd;cursor:pointer}
+#drop-overlay{display:none;position:fixed;inset:0;background:rgba(127,119,221,0.07);border:2px dashed #7f77dd;z-index:100;align-items:center;justify-content:center;pointer-events:none}
+#drop-overlay.active{display:flex}
+#drop-overlay span{background:#fff;padding:6px 16px;border-radius:8px;color:#534ab7}
+.empty-hint{font-size:11px;color:#b4b2a9;padding:12px 0}
+</style>
+</head>
+<body>
+
+<div id="drop-overlay"><span>Drop .rdl file to load</span></div>
+
+<div id="topbar">
+  <h1>PeakRDL-renode AST Visualizer</h1>
+  <div class="sep"></div>
+  <div class="sub">Updated Logic: Correct C# API mapping & Precise Bit-Offsets</div>
+  <label id="upload-btn" for="file-input">Upload .rdl</label>
+  <input type="file" id="file-input" accept=".rdl,.txt"/>
+  <span id="filename">no file loaded</span>
+  <div class="sep"></div>
+  <button class="load-eg" onclick="loadExample()">Load example</button>
+  <button class="apply-btn" onclick="applyEditor()">Apply ↗</button>
+</div>
+
+<div id="statusbar">
+  <span id="status-msg">Ready</span>
+  <span class="stat-pill" id="stat-regs">— regs</span>
+  <span class="stat-pill" id="stat-fields">— fields</span>
+  <span class="stat-pill" id="stat-cs">— C# nodes</span>
+</div>
+
+<div id="main">
+  <div class="pane">
+    <div class="pane-head"><div class="dot" style="background:#888780"></div><span class="pane-title">RDL source</span><span class="pane-hint" id="editor-lines">0 lines</span></div>
+    <div class="pane-body">
+      <div id="editor-wrap">
+        <div id="line-nums"></div>
+        <textarea id="editor" spellcheck="false"></textarea>
+        <div id="upload-placeholder"><p>Drop an <b onclick="document.getElementById('file-input').click()">.rdl file</b> or <b onclick="loadExample()">Load example</b></p></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane">
+    <div class="pane-head"><div class="dot" style="background:#7f77dd"></div><span class="pane-title">RDL design tree</span></div>
+    <div class="pane-body"><div class="tree-panel-body" id="rdl-tree"><span class="empty-hint">Parse a file...</span></div></div>
+  </div>
+
+  <div class="pane">
+    <div class="pane-head"><div class="dot" style="background:#1d9e75"></div><span class="pane-title">C# AST (Renode API)</span></div>
+    <div class="pane-body"><div class="tree-panel-body" id="cs-tree"><span class="empty-hint">Parse a file...</span></div></div>
+  </div>
+</div>
+
+<div id="detail">
+  <div id="detail-title">Inspect Properties</div>
+  <div id="detail-rows"></div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════
+   FIXED RDL PARSER
+═══════════════════════════════════════════ */
+
+function stripComments(text) {
+  return text.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
+function parseRdl(rawText) {
+  const text = stripComments(rawText);
+  const m = text.match(/addrmap\s+["']?(\w+)["']?\s*(?:@\s*(0x[\da-fA-F]+|\d+))?\s*\{([\s\S]*)\}\s*;?\s*$/);
+  if (!m) throw new Error('No top-level addrmap found');
+  const root = { type: 'addrmap', name: m[1], meta: { base_addr: m[2] || '0x0' }, children: [] };
+  parseScope(m[3], root, { offset: 0 });
+  return root;
+}
+
+function parseScope(body, parent, state) {
+  const blocks = extractTopLevelBlocks(body);
+  for (const blk of blocks) {
+    if (blk.keyword === 'reg') {
+      const node = parseReg(blk, state);
+      parent.children.push(node);
+      // Logic Fix: Increment offset by register width (default 4 bytes)
+      const width = parseInt(node.meta.width || 32) / 8;
+      state.offset += width;
+    } else if (blk.keyword === 'regfile') {
+      const node = { type: 'regfile', name: blk.name, children: [] };
+      parseScope(blk.body, node, { offset: 0 });
+      parent.children.push(node);
+    }
+  }
+}
+
+function parseReg(blk, state) {
+  const addr = blk.addr != null ? hexStr(blk.addr) : hexStr(state.offset);
+  const rstM  = blk.body.match(/\breset\s*=\s*(0x[\da-fA-F]+|\d+)\s*;/);
+  const wM    = blk.body.match(/\bregwidth\s*=\s*(\d+)\s*;/);
+  const node = {
+    type: 'reg',
+    name: blk.name,
+    meta: { offset: addr, reset: rstM ? rstM[1] : '0x0', width: wM ? wM[1] : '32' },
+    children: []
+  };
+  parseFieldsInBody(blk.body, node);
+  return node;
+}
+
+function parseFieldsInBody(body, regNode) {
+  // Logic Fix: Handle quoted names and "field [bits] NAME" or "field NAME [bits]"
+  const re = /field\s+(?:\{[^}]*\}\s*)?["']?(\w+)["']?\s*\[([^\]]+)\]\s*(?:=\s*(0x[\da-fA-F]+|\d+)\s*)?(?:\{([^}]*)\})?\s*;?/g;
+  const re_rev = /field\s+(?:\{[^}]*\}\s*)?\[([^\]]+)\]\s*["']?(\w+)["']?\s*(?:=\s*(0x[\da-fA-F]+|\d+)\s*)?(?:\{([^}]*)\})?\s*;?/g;
+
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    regNode.children.push(makeField(m[1], m[2], m[4] || '', m[3]));
+  }
+  if (regNode.children.length === 0) {
+    while ((m = re_rev.exec(body)) !== null) {
+      regNode.children.push(makeField(m[2], m[1], m[4] || '', m[3]));
+    }
+  }
+}
+
+function makeField(name, bits, fblock, dflt) {
+  // Logic Fix: Explicitly calculate bit position and width for C# methods
+  const bp = bits.replace(/\s/g,'');
+  let pos = 0, width = 1;
+  if (bp.includes(':')) {
+    const [msb, lsb] = bp.split(':').map(Number);
+    pos = lsb;
+    width = (msb - lsb) + 1;
+  } else {
+    pos = parseInt(bp);
+  }
+
+  return {
+    type: 'field',
+    name,
+    meta: {
+      pos, width,
+      bits: `[${bp}]`,
+      sw: fblock.match(/\bsw\s*=\s*(\w+)/)?.[1] || 'rw',
+      reset: fblock.match(/\breset\s*=\s*(0x[\da-fA-F]+|\d+)/)?.[1] || (dflt || '0x0')
+    }
+  };
+}
+
+function extractTopLevelBlocks(text) {
+  const results = [];
+  const re = /(reg|regfile)\s+["']?(\w+)["']?\s*(?:@\s*(0x[\da-fA-F]+|\d+))?\s*\{/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const keyword = m[1], name = m[2];
+    const addr = m[3] != null ? parseInt(m[3], m[3].startsWith('0x') ? 16 : 10) : null;
+    let depth = 1, i = m.index + m[0].length;
+    while (i < text.length && depth > 0) {
+      if (text[i] === '{') depth++; else if (text[i] === '}') depth--;
+      i++;
+    }
+    results.push({ keyword, name, addr, body: text.slice(m.index + m[0].length, i - 1) });
+  }
+  return results;
+}
+
+function hexStr(n) { return '0x' + n.toString(16).toUpperCase(); }
+
+/* ═══════════════════════════════════════════
+   FIXED C# AST BUILDER (Renode Mapping)
+═══════════════════════════════════════════ */
+
+function buildCsAst(rdl) {
+  const regs = collectRegs(rdl);
+  return {
+    type: 'cs-namespace',
+    name: 'Antmicro.Renode.Peripherals',
+    children: [{
+      type: 'cs-class',
+      name: rdl.name,
+      children: regs.map(r => ({
+        type: 'cs-struct',
+        name: r.name + '_Reg',
+        children: [{
+          type: 'cs-call',
+          name: `DefineRegister(${r.meta.offset})`,
+          children: r.children.map(f => {
+            // Logic Fix: Map SystemRDL 'sw' to Renode API methods
+            let method = f.meta.width === 1 ? 'WithFlag' : 'WithValueField';
+            if (f.meta.sw === 'w1c') method = 'WithW1C';
+            else if (f.meta.sw === 'r') method = 'WithReadOnly';
+            
+            const params = f.meta.width === 1 ? `${f.meta.pos}` : `${f.meta.pos}, ${f.meta.width}`;
+            return { type: 'cs-call', name: `.${method}(${params}, name: "${f.name}")` };
+          })
+        }]
+      }))
+    }]
+  };
+}
+
+function collectRegs(node) {
+  let regs = [];
+  if (node.type === 'reg') regs.push(node);
+  if (node.children) node.children.forEach(c => regs = regs.concat(collectRegs(c)));
+  return regs;
+}
+
+/* ═══════════════════════════════════════════
+   UI & RENDER LOGIC
+═══════════════════════════════════════════ */
+
+let currentRdl = null, currentCsAst = null;
+const expanded = new Set();
+
+function renderNode(node, depth, pId) {
+  const id = (pId || 'rt') + node.type + node.name + depth;
+  const hasKids = node.children && node.children.length > 0;
+  const open = expanded.has(id) || depth < 2;
+
+  const wrap = document.createElement('div');
+  const row = document.createElement('div');
+  row.className = 'tree-row';
+  row.innerHTML = `<div class="toggle">${hasKids?(open?'▾':'▸'):'·'}</div><span class="chip c-${node.type.replace('cs-','')}">${node.type.replace('cs-','')}</span><span class="node-lbl">${node.name}</span>`;
+  
+  row.onclick = (e) => {
+    e.stopPropagation();
+    open ? expanded.delete(id) : expanded.add(id);
+    showDetail(node);
+    rerender();
+  };
+
+  wrap.appendChild(row);
+  if (hasKids && open) {
+    const cont = document.createElement('div');
+    cont.className = 'children';
+    node.children.forEach(c => cont.appendChild(renderNode(c, depth+1, id)));
+    wrap.appendChild(cont);
+  }
+  return wrap;
+}
+
+function showDetail(node) {
+  const rows = document.getElementById('detail-rows');
+  rows.innerHTML = '';
+  document.getElementById('detail-title').textContent = node.name;
+  if (node.meta) Object.entries(node.meta).forEach(([k,v]) => {
+    rows.innerHTML += `<div class="drow">${k}: <span>${v}</span></div>`;
+  });
+}
+
+function rerender() {
+  const rt = document.getElementById('rdl-tree');
+  const ct = document.getElementById('cs-tree');
+  rt.innerHTML = ''; ct.innerHTML = '';
+  if (currentRdl) rt.appendChild(renderNode(currentRdl, 0, 'rdl'));
+  if (currentCsAst) ct.appendChild(renderNode(currentCsAst, 0, 'cs'));
+}
+
+function applyEditor() {
+  try {
+    const text = document.getElementById('editor').value;
+    currentRdl = parseRdl(text);
+    currentCsAst = buildCsAst(currentRdl);
+    document.getElementById('status-msg').textContent = "Parsed Successfully";
+    document.getElementById('status-msg').className = "ok";
+    rerender();
+  } catch(e) {
+    document.getElementById('status-msg').textContent = e.message;
+    document.getElementById('status-msg').className = "err";
+  }
+}
+
+function loadExample() {
+  document.getElementById('upload-placeholder').style.display = 'none';
+  document.getElementById('editor').style.display = 'block';
+  document.getElementById('editor').value = `addrmap "MyPeripheral" {
+  reg "CTRL" @0x0 {
+    field "EN" [0] = 0;
+    field "MODE" [2:1] { sw = rw; };
+  };
+  reg "STATUS" @0x4 {
+    field "BUSY" [0] { sw = r; };
+    field "ERR_CLR" [1] { sw = w1c; };
+  };
+};`;
+  applyEditor();
+}
+</script>
+</body>
+</html>

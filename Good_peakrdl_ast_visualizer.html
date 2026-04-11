@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>PeakRDL-renode AST Visualizer</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:system-ui,sans-serif;background:#f1efe8;color:#1a1a18;font-size:13px;display:flex;flex-direction:column}
+
+/* top bar */
+#topbar{display:flex;align-items:center;gap:10px;padding:8px 14px;background:#fff;border-bottom:1px solid #d3d1c7;flex-shrink:0;flex-wrap:wrap}
+#topbar h1{font-size:13px;font-weight:600;white-space:nowrap}
+.sep{width:1px;height:18px;background:#d3d1c7;flex-shrink:0}
+.sub{font-size:11px;color:#73726c;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#upload-btn{display:flex;align-items:center;gap:5px;padding:4px 10px;border:1px solid #d3d1c7;border-radius:6px;cursor:pointer;background:#fff;color:#1a1a18;font-size:11px;white-space:nowrap;font-family:inherit;user-select:none}
+#upload-btn:hover{background:#f1efe8}
+#file-input{display:none}
+#filename{font-size:11px;color:#73726c;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;min-width:60px}
+.apply-btn{padding:4px 11px;border:1px solid #7f77dd;border-radius:6px;cursor:pointer;background:#7f77dd;color:#fff;font-size:11px;font-family:inherit;white-space:nowrap}
+.apply-btn:hover{background:#534ab7}
+.load-eg{padding:4px 10px;border:1px solid #d3d1c7;border-radius:6px;cursor:pointer;background:#fff;color:#5f5e5a;font-size:11px;font-family:inherit;white-space:nowrap}
+.load-eg:hover{background:#f1efe8}
+
+/* status bar */
+#statusbar{display:flex;align-items:center;gap:8px;padding:3px 14px;background:#f9f8f5;border-bottom:1px solid #d3d1c7;flex-shrink:0;min-height:24px}
+#status-msg{font-size:11px;color:#73726c;flex:1}
+#status-msg.ok{color:#0f6e56}
+#status-msg.err{color:#a32d2d}
+.stat-pill{font-size:10px;padding:1px 7px;border-radius:8px;background:#f1efe8;color:#5f5e5a;border:1px solid #d3d1c7;white-space:nowrap}
+
+/* three-column main */
+#main{display:grid;grid-template-columns:1fr 1fr 1fr;flex:1;overflow:hidden;min-height:0}
+.pane{display:flex;flex-direction:column;border-right:1px solid #d3d1c7;overflow:hidden}
+.pane:last-child{border-right:none}
+.pane-head{display:flex;align-items:center;gap:6px;padding:6px 10px;background:#f9f8f5;border-bottom:1px solid #d3d1c7;flex-shrink:0}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.pane-title{font-size:11px;font-weight:600;flex:1}
+.pane-hint{font-size:10px;color:#b4b2a9}
+.pane-body{flex:1;overflow:auto;position:relative;min-height:0}
+
+/* editor */
+#editor-wrap{position:relative;height:100%;display:flex}
+#line-nums{width:36px;background:#f9f8f5;border-right:1px solid #e8e7e0;padding:10px 6px 10px 0;font-family:ui-monospace,monospace;font-size:12px;line-height:1.6;color:#b4b2a9;text-align:right;flex-shrink:0;overflow:hidden;white-space:pre;user-select:none;display:none}
+#editor{flex:1;resize:none;border:none;outline:none;background:#fff;font-family:ui-monospace,monospace;font-size:12px;line-height:1.6;color:#1a1a18;padding:10px;tab-size:2;display:none}
+#editor::selection{background:#d3cbf5}
+
+/* drop overlay */
+#drop-overlay{display:none;position:fixed;inset:0;background:rgba(127,119,221,0.07);border:2px dashed #7f77dd;z-index:100;align-items:center;justify-content:center;flex-direction:column;gap:10px;pointer-events:none}
+#drop-overlay.active{display:flex}
+#drop-overlay span{font-size:14px;color:#534ab7;font-weight:500;background:#fff;padding:6px 16px;border-radius:8px}
+
+/* upload placeholder */
+#upload-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:14px;color:#b4b2a9;padding:20px;background:#fff}
+#upload-placeholder p{font-size:12px;text-align:center;line-height:1.7;max-width:220px;color:#73726c}
+#upload-placeholder b{color:#7f77dd;cursor:pointer;font-weight:500}
+#upload-placeholder svg{opacity:.4}
+
+/* tree */
+.tree-panel-body{padding:8px;background:#fff;min-height:100%}
+.tree-row{display:flex;align-items:flex-start;gap:4px;padding:2px 5px;border-radius:4px;cursor:pointer}
+.tree-row:hover{background:#f1efe8}
+.tree-row.selected{background:#e6f1fb}
+.toggle{width:13px;height:18px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#888;flex-shrink:0;margin-top:1px}
+.chip{font-size:9px;font-weight:600;padding:1px 5px;border-radius:8px;flex-shrink:0;margin-top:2px;letter-spacing:.03em;text-transform:uppercase}
+.c-addrmap{background:#eeedfe;color:#3c3489}
+.c-regfile{background:#e1f5ee;color:#085041}
+.c-reg{background:#e6f1fb;color:#0c447c}
+.c-field{background:#faeeda;color:#633806}
+.c-mem{background:#faece7;color:#712b13}
+.c-cs-namespace{background:#eeedfe;color:#3c3489}
+.c-cs-class{background:#e1f5ee;color:#085041}
+.c-cs-struct{background:#eaf3de;color:#27500a}
+.c-cs-method{background:#e6f1fb;color:#0c447c}
+.c-cs-property{background:#faeeda;color:#633806}
+.c-cs-field{background:#f1efe8;color:#444441}
+.c-cs-call{background:#fcebeb;color:#791f1f}
+.c-cs-assign{background:#fbeaf0;color:#72243e}
+.node-lbl{font-size:11px;font-family:ui-monospace,monospace;color:#1a1a18;word-break:break-all;line-height:1.5}
+.node-meta{font-size:10px;color:#888;font-family:ui-monospace,monospace;margin-left:3px;line-height:1.5}
+.children{padding-left:14px;border-left:1px solid #e8e7e0;margin-left:6px}
+
+/* detail bar */
+#detail{flex-shrink:0;padding:5px 14px;border-top:1px solid #d3d1c7;background:#f9f8f5;min-height:34px;display:flex;align-items:flex-start;gap:12px}
+#detail-title{font-size:11px;font-weight:600;white-space:nowrap;padding-top:1px;min-width:120px}
+#detail-rows{display:flex;flex-wrap:wrap;gap:2px 14px;flex:1}
+.drow{font-size:10px;color:#73726c}
+.drow span{color:#1a1a18;font-family:ui-monospace,monospace}
+
+/* legend */
+#legend{display:flex;align-items:center;flex-wrap:wrap;gap:5px;padding:4px 14px;border-top:1px solid #d3d1c7;background:#fff;flex-shrink:0}
+#legend .lg{font-size:10px;color:#73726c}
+.vsep{width:1px;height:12px;background:#d3d1c7;display:inline-block;margin:0 2px}
+
+/* empty state */
+.empty-hint{font-size:11px;color:#b4b2a9;padding:12px 0}
+</style>
+</head>
+<body>
+
+<!-- drop overlay (full screen) -->
+<div id="drop-overlay"><span>Drop .rdl file to load</span></div>
+
+<!-- top bar -->
+<div id="topbar">
+  <h1>PeakRDL-renode AST Visualizer</h1>
+  <div class="sep"></div>
+  <div class="sub">Upload an .rdl file or edit inline — trees update instantly on Apply</div>
+  <label id="upload-btn" for="file-input">
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 10V3M5 6l3-3 3 3"/><rect x="2" y="11" width="12" height="4" rx="1"/>
+    </svg>
+    Upload .rdl
+  </label>
+  <input type="file" id="file-input" accept=".rdl,.txt"/>
+  <span id="filename">no file loaded</span>
+  <div class="sep"></div>
+  <button class="load-eg" onclick="loadExample()">Load example</button>
+  <button class="apply-btn" onclick="applyEditor()">Apply ↗</button>
+</div>
+
+<!-- status bar -->
+<div id="statusbar">
+  <span id="status-msg">Ready — upload a file, drag and drop, or click Load example</span>
+  <span class="stat-pill" id="stat-regs">— regs</span>
+  <span class="stat-pill" id="stat-fields">— fields</span>
+  <span class="stat-pill" id="stat-cs">— C# nodes</span>
+</div>
+
+<!-- main three columns -->
+<div id="main">
+  <!-- editor -->
+  <div class="pane">
+    <div class="pane-head">
+      <div class="dot" style="background:#888780"></div>
+      <span class="pane-title">RDL source</span>
+      <span class="pane-hint" id="editor-lines">0 lines</span>
+    </div>
+    <div class="pane-body">
+      <div id="editor-wrap">
+        <div id="line-nums"></div>
+        <textarea id="editor" spellcheck="false" placeholder="Paste or type SystemRDL here, then click Apply…"></textarea>
+        <div id="upload-placeholder">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="12" y1="18" x2="12" y2="12"/>
+            <line x1="9" y1="15" x2="15" y2="15"/>
+          </svg>
+          <p>Drop an <b onclick="document.getElementById('file-input').click()">.rdl file</b> here, click <b onclick="document.getElementById('file-input').click()">Upload .rdl</b> above, or click <b onclick="loadExample()">Load example</b> to get started.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RDL tree -->
+  <div class="pane">
+    <div class="pane-head">
+      <div class="dot" style="background:#7f77dd"></div>
+      <span class="pane-title">RDL design tree</span>
+      <span class="pane-hint">systemrdl walker</span>
+    </div>
+    <div class="pane-body">
+      <div class="tree-panel-body" id="rdl-tree">
+        <span class="empty-hint">Parse a file to see the design tree.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- C# AST -->
+  <div class="pane">
+    <div class="pane-head">
+      <div class="dot" style="background:#1d9e75"></div>
+      <span class="pane-title">C# AST</span>
+      <span class="pane-hint">CSharpGenerator → csharp/ast.py</span>
+    </div>
+    <div class="pane-body">
+      <div class="tree-panel-body" id="cs-tree">
+        <span class="empty-hint">Parse a file to see the C# AST.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- detail bar -->
+<div id="detail">
+  <div id="detail-title">Click a node to inspect its properties</div>
+  <div id="detail-rows"></div>
+</div>
+
+<!-- legend -->
+<div id="legend">
+  <span class="lg">RDL nodes:</span>
+  <span class="chip c-addrmap">addrmap</span>
+  <span class="chip c-regfile">regfile</span>
+  <span class="chip c-reg">reg</span>
+  <span class="chip c-field">field</span>
+  <span class="chip c-mem">mem</span>
+  <div class="vsep"></div>
+  <span class="lg">C# AST:</span>
+  <span class="chip c-cs-namespace">namespace</span>
+  <span class="chip c-cs-class">class</span>
+  <span class="chip c-cs-struct">struct</span>
+  <span class="chip c-cs-method">method</span>
+  <span class="chip c-cs-property">property</span>
+  <span class="chip c-cs-field">field</span>
+  <span class="chip c-cs-call">call</span>
+  <span class="chip c-cs-assign">assign</span>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════
+   RDL PARSER
+   Handles: addrmap, regfile, reg, field, mem
+   Extracts: offset, reset, sw, hw, onread, onwrite, bit ranges
+═══════════════════════════════════════════ */
+
+function stripComments(text) {
+  return text
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
+function parseRdl(rawText) {
+  const text = stripComments(rawText);
+  const m = text.match(/addrmap\s+(\w+)\s*(?:@\s*(0x[\da-fA-F]+|\d+))?\s*\{([\s\S]*)\}\s*;?\s*$/);
+  if (!m) throw new Error('No top-level addrmap declaration found');
+  const root = {
+    type: 'addrmap',
+    name: m[1],
+    meta: { base_addr: m[2] || '0x0', inst: m[1] },
+    children: []
+  };
+  parseScope(m[3], root, { offset: 0 });
+  return root;
+}
+
+function parseScope(body, parent, state) {
+  const blocks = extractTopLevelBlocks(body);
+  for (const blk of blocks) {
+    const kw = blk.keyword;
+    if (kw === 'reg') {
+      const node = parseReg(blk, state);
+      parent.children.push(node);
+      state.offset += 4;
+    } else if (kw === 'regfile') {
+      const node = { type: 'regfile', name: blk.name, meta: { inst: blk.name }, children: [] };
+      parseScope(blk.body, node, { offset: 0 });
+      parent.children.push(node);
+    } else if (kw === 'mem') {
+      const addr = blk.addr != null ? hexStr(blk.addr) : hexStr(state.offset);
+      const node = { type: 'mem', name: blk.name, meta: { addr, inst: blk.name }, children: [] };
+      parseScope(blk.body, node, { offset: 0 });
+      parent.children.push(node);
+      state.offset += 4;
+    }
+    // default properties and standalone fields at addrmap level are skipped
+  }
+}
+
+function parseReg(blk, state) {
+  const addr = blk.addr != null ? hexStr(blk.addr) : hexStr(state.offset);
+  // extract reg-level defaults from body
+  const swM   = blk.body.match(/\bsw\s*=\s*(\w+)\s*;/);
+  const rstM  = blk.body.match(/\breset\s*=\s*(0x[\da-fA-F]+|\d+)\s*;/);
+  const wM    = blk.body.match(/\bregwidth\s*=\s*(\d+)\s*;/);
+  const node = {
+    type: 'reg',
+    name: blk.name,
+    meta: {
+      offset: addr,
+      reset:  rstM ? rstM[1] : '0x0',
+      width:  wM ? wM[1] : '32',
+      sw:     swM ? swM[1] : 'rw'
+    },
+    children: []
+  };
+  parseFieldsInBody(blk.body, node);
+  return node;
+}
+
+function parseFieldsInBody(body, regNode) {
+  // Match: field [type] name [bits] [= default] { ... };
+  // Also handle: field {} name [bits] [= val];  (peakRDL shorthand)
+  const re = /field\s+(?:\{[^}]*\}\s*)?(\w+)\s*\[([^\]]+)\]\s*(?:=\s*(0x[\da-fA-F]+|\d+)\s*)?\{([^}]*)\}\s*;/g;
+  const re2 = /field\s+(?:\{[^}]*\}\s*)?(\w+)\s*\[([^\]]+)\]\s*(?:=\s*(0x[\da-fA-F]+|\d+)\s*)?;/g;
+  let matched = false;
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    matched = true;
+    regNode.children.push(makeField(m[1], m[2], m[4] || '', m[3]));
+  }
+  if (!matched) {
+    while ((m = re2.exec(body)) !== null) {
+      regNode.children.push(makeField(m[1], m[2], '', m[3]));
+    }
+  }
+}
+
+function makeField(name, bits, fblock, dflt) {
+  const swM  = fblock.match(/\bsw\s*=\s*(\w+)/);
+  const hwM  = fblock.match(/\bhw\s*=\s*(\w+)/);
+  const rstM = fblock.match(/\breset\s*=\s*(0x[\da-fA-F]+|\d+)/);
+  const orM  = fblock.match(/\bonread\s*=\s*(\w+)/);
+  const owM  = fblock.match(/\bonwrite\s*=\s*(\w+)/);
+  // normalise bit range
+  const bp = bits.replace(/\s/g,'');
+  const bitStr = bp.includes(':') ? '['+bp+']' : '['+bp+']';
+  return {
+    type: 'field',
+    name,
+    meta: {
+      bits:    bitStr,
+      sw:      swM  ? swM[1]  : 'rw',
+      hw:      hwM  ? hwM[1]  : 'r',
+      reset:   rstM ? rstM[1] : (dflt || '0x0'),
+      onread:  orM  ? orM[1]  : '-',
+      onwrite: owM  ? owM[1]  : '-'
+    }
+  };
+}
+
+// Extract top-level { } blocks with their keyword, name, optional @addr, and inner body
+function extractTopLevelBlocks(text) {
+  const results = [];
+  const re = /(reg|regfile|mem|field)\s+(\w+)\s*(?:@\s*(0x[\da-fA-F]+|\d+))?\s*\{/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const keyword = m[1];
+    const name    = m[2];
+    const addr    = m[3] != null ? parseInt(m[3], m[3].startsWith('0x') ? 16 : 10) : null;
+    const bodyStart = m.index + m[0].length;
+    let depth = 1, i = bodyStart;
+    while (i < text.length && depth > 0) {
+      if (text[i] === '{') depth++;
+      else if (text[i] === '}') depth--;
+      i++;
+    }
+    results.push({ keyword, name, addr, body: text.slice(bodyStart, i - 1) });
+  }
+  return results;
+}
+
+function hexStr(n) { return '0x' + n.toString(16).toUpperCase(); }
+
+/* ═══════════════════════════════════════════
+   C# AST BUILDER
+   Mirrors CSharpGenerator in cs_exporter.py
+═══════════════════════════════════════════ */
+
+function collectRegs(node) {
+  let regs = [];
+  if (node.type === 'reg') regs.push(node);
+  if (node.children) node.children.forEach(c => regs = regs.concat(collectRegs(c)));
+  return regs;
+}
+
+function buildCsAst(rdl) {
+  const p = rdl.name;
+  const regs = collectRegs(rdl);
+
+  return {
+    type: 'cs-namespace',
+    name: 'Antmicro.Renode.Peripherals.X',
+    meta: { source: '__peakrdl__.py → cs_exporter.py → CSharpGenerator' },
+    children: [{
+      type: 'cs-class',
+      name: p + ' (partial)',
+      meta: { derives: 'IProvidesRegisterCollection, IPeripheral, IDoubleWordPeripheral' },
+      children: [
+        {
+          type: 'cs-property',
+          name: 'RegistersCollection',
+          meta: { type: 'DoubleWordRegisterCollection', access: 'public', get: 'true' }
+        },
+        ...regs.map(r => ({
+          type: 'cs-field',
+          name: r.name,
+          meta: { type: r.name + '_Type', access: 'protected', at: r.meta.offset }
+        })),
+        {
+          type: 'cs-method',
+          name: p + ' (ctor)',
+          meta: { access: 'public', source: 'CSharpGenerator.__init__' },
+          children: [
+            { type: 'cs-assign', name: 'RegistersCollection = new DoubleWordRegisterCollection(this)', meta: {} },
+            ...regs.map(r => ({
+              type: 'cs-assign',
+              name: r.name + ' = new ' + r.name + '_Type(this)',
+              meta: {}
+            })),
+            { type: 'cs-call', name: 'this.Init()', meta: {} }
+          ]
+        },
+        {
+          type: 'cs-method',
+          name: 'IDoubleWordPeripheral.ReadDoubleWord',
+          meta: { ret: 'uint', args: 'long offset', source: 'generate_read_method()' },
+          children: [{ type: 'cs-call', name: 'RegistersCollection.Read(offset)', meta: {} }]
+        },
+        {
+          type: 'cs-method',
+          name: 'IDoubleWordPeripheral.WriteDoubleWord',
+          meta: { ret: 'void', args: 'long offset, uint value', source: 'generate_write_method()' },
+          children: [{ type: 'cs-call', name: 'RegistersCollection.Write(offset, value)', meta: {} }]
+        },
+        { type: 'cs-method', name: 'Init',  meta: { access: 'partial' } },
+        { type: 'cs-method', name: 'Reset', meta: { access: 'partial' } },
+        {
+          type: 'cs-method',
+          name: 'IPeripheral.Reset',
+          meta: { ret: 'void' },
+          children: [
+            { type: 'cs-call', name: 'this.Reset()', meta: {} },
+            { type: 'cs-call', name: 'RegistersCollection.Reset()', meta: {} }
+          ]
+        },
+        ...regs.map(r => ({
+          type: 'cs-struct',
+          name: r.name + '_Type',
+          meta: { access: 'public', source: 'generate_value_container_class()' },
+          children: [
+            ...r.children.map(f => {
+              const isFlag = /^\[\d+\]$/.test(f.meta.bits.replace(/\s/g,''));
+              return {
+                type: 'cs-field',
+                name: f.name,
+                meta: { type: isFlag ? 'IFlagRegisterField' : 'IValueRegisterField', access: 'public' }
+              };
+            }),
+            {
+              type: 'cs-method',
+              name: r.name + '_Type (ctor)',
+              meta: { args: 'IProvidesRegisterCollection parent', source: 'generate_field_decl()' },
+              children: [{
+                type: 'cs-call',
+                name: 'parent.RegistersCollection.DefineRegister(' + r.meta.offset + ', ' + r.meta.reset + ', true)',
+                meta: { source: 'fluent field chain' },
+                children: r.children.map(f => {
+                  const isFlag = /^\[\d+\]$/.test(f.meta.bits.replace(/\s/g,''));
+                  const mth = isFlag ? 'WithFlag' : 'WithValueField';
+                  return {
+                    type: 'cs-call',
+                    name: '.' + mth + '(out ' + f.name + ', name:"' + f.name + '")',
+                    meta: { sw: f.meta.sw || 'rw', onread: f.meta.onread || '-' }
+                  };
+                })
+              }]
+            }
+          ]
+        }))
+      ]
+    }]
+  };
+}
+
+/* ═══════════════════════════════════════════
+   TREE RENDERER
+═══════════════════════════════════════════ */
+
+let currentRdl = null, currentCsAst = null;
+let selectedId = null;
+const expanded = new Set();
+
+function chipClass(t) {
+  const m = {
+    addrmap:'c-addrmap', regfile:'c-regfile', reg:'c-reg', field:'c-field', mem:'c-mem',
+    'cs-namespace':'c-cs-namespace','cs-class':'c-cs-class','cs-struct':'c-cs-struct',
+    'cs-method':'c-cs-method','cs-property':'c-cs-property','cs-field':'c-cs-field',
+    'cs-call':'c-cs-call','cs-assign':'c-cs-assign'
+  };
+  return 'chip ' + (m[t] || 'c-cs-field');
+}
+function chipLabel(t) { return t.replace('cs-',''); }
+
+function renderNode(node, depth, parentId) {
+  const id = (parentId || 'root') + '::' + node.type + '::' + node.name;
+  const hasKids = node.children && node.children.length > 0;
+  // auto-expand first two levels
+  const open = expanded.has(id) || depth < 2;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'tree-node';
+
+  const row = document.createElement('div');
+  row.className = 'tree-row' + (selectedId === id ? ' selected' : '');
+
+  row.onclick = e => {
+    e.stopPropagation();
+    const wasSelected = selectedId === id;
+    selectedId = id;
+    if (hasKids && wasSelected) {
+      open ? expanded.delete(id) : expanded.add(id);
+    } else if (hasKids && !expanded.has(id) && depth >= 2) {
+      expanded.add(id);
+    }
+    showDetail(node);
+    rerenderBoth();
+  };
+
+  const tog = document.createElement('div');
+  tog.className = 'toggle';
+  tog.textContent = hasKids ? (open ? '▾' : '▸') : '·';
+
+  const chip = document.createElement('span');
+  chip.className = chipClass(node.type);
+  chip.textContent = chipLabel(node.type);
+
+  const lbl = document.createElement('span');
+  lbl.className = 'node-lbl';
+  lbl.textContent = node.name;
+
+  row.append(tog, chip, lbl);
+
+  if (node.meta) {
+    const entries = Object.entries(node.meta).filter(([,v]) => v && v !== '-');
+    if (entries.length) {
+      const meta = document.createElement('span');
+      meta.className = 'node-meta';
+      meta.textContent = entries.slice(0, 2).map(([,v]) => v).join('  ');
+      row.append(meta);
+    }
+  }
+
+  wrap.append(row);
+
+  if (hasKids && open) {
+    const ch = document.createElement('div');
+    ch.className = 'children';
+    node.children.forEach(c => ch.append(renderNode(c, depth + 1, id)));
+    wrap.append(ch);
+  }
+
+  return wrap;
+}
+
+function showDetail(node) {
+  document.getElementById('detail-title').textContent = '[' + node.type + ']  ' + node.name;
+  const rows = document.getElementById('detail-rows');
+  rows.innerHTML = '';
+  if (node.meta) {
+    Object.entries(node.meta).forEach(([k, v]) => {
+      const d = document.createElement('div');
+      d.className = 'drow';
+      d.innerHTML = k + ': <span>' + v + '</span>';
+      rows.append(d);
+    });
+  }
+  if (node.children) {
+    const d = document.createElement('div');
+    d.className = 'drow';
+    d.innerHTML = 'children: <span>' + node.children.length + '</span>';
+    rows.append(d);
+  }
+}
+
+function rerenderBoth() {
+  const rt = document.getElementById('rdl-tree');
+  const ct = document.getElementById('cs-tree');
+  rt.innerHTML = '';
+  ct.innerHTML = '';
+  if (!currentRdl) {
+    rt.innerHTML = '<span class="empty-hint">Parse a file to see the design tree.</span>';
+    ct.innerHTML = '<span class="empty-hint">Parse a file to see the C# AST.</span>';
+    return;
+  }
+  rt.append(renderNode(currentRdl, 0, null));
+  ct.append(renderNode(currentCsAst, 0, null));
+}
+
+/* ═══════════════════════════════════════════
+   APPLY / PARSE PIPELINE
+═══════════════════════════════════════════ */
+
+function countNodes(node, type) {
+  let n = node.type === type ? 1 : 0;
+  if (node.children) node.children.forEach(c => n += countNodes(c, type));
+  return n;
+}
+function countAll(node) {
+  let n = 1;
+  if (node.children) node.children.forEach(c => n += countAll(c));
+  return n;
+}
+
+function applyRdl(text, fname) {
+  const st = document.getElementById('status-msg');
+  try {
+    currentRdl    = parseRdl(text);
+    currentCsAst  = buildCsAst(currentRdl);
+    expanded.clear();
+    selectedId = null;
+    rerenderBoth();
+
+    const nR = countNodes(currentRdl, 'reg');
+    const nF = countNodes(currentRdl, 'field');
+    const nC = countAll(currentCsAst);
+    document.getElementById('stat-regs').textContent   = nR + ' regs';
+    document.getElementById('stat-fields').textContent = nF + ' fields';
+    document.getElementById('stat-cs').textContent     = nC + ' C# nodes';
+    st.className = 'ok';
+    st.textContent = (fname || 'input') + ' — parsed OK: ' + nR + ' registers, ' + nF + ' fields';
+    document.getElementById('detail-title').textContent = 'Click a node to inspect its properties';
+    document.getElementById('detail-rows').innerHTML = '';
+  } catch (e) {
+    st.className = 'err';
+    st.textContent = 'Parse error: ' + e.message;
+  }
+}
+
+function applyEditor() {
+  const text = document.getElementById('editor').value.trim();
+  if (!text) return;
+  showEditor();
+  applyRdl(text, 'editor');
+}
+
+/* ═══════════════════════════════════════════
+   EDITOR UI
+═══════════════════════════════════════════ */
+
+function showEditor() {
+  document.getElementById('upload-placeholder').style.display = 'none';
+  document.getElementById('editor').style.display = 'block';
+  document.getElementById('line-nums').style.display = 'block';
+}
+
+function updateLineNums() {
+  const ed = document.getElementById('editor');
+  const lines = (ed.value || '').split('\n').length;
+  document.getElementById('editor-lines').textContent = lines + ' lines';
+  document.getElementById('line-nums').textContent =
+    Array.from({ length: lines }, (_, i) => i + 1).join('\n');
+}
+
+function syncScroll() {
+  document.getElementById('line-nums').scrollTop =
+    document.getElementById('editor').scrollTop;
+}
+
+const edEl = document.getElementById('editor');
+
+edEl.addEventListener('input', updateLineNums);
+edEl.addEventListener('scroll', syncScroll);
+edEl.addEventListener('keydown', e => {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const s = e.target.selectionStart, end = e.target.selectionEnd;
+    e.target.value = e.target.value.slice(0, s) + '  ' + e.target.value.slice(end);
+    e.target.selectionStart = e.target.selectionEnd = s + 2;
+    updateLineNums();
+  }
+  // Ctrl/Cmd + Enter = apply
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    applyEditor();
+  }
+});
+
+// Click on placeholder editor area focuses input
+edEl.addEventListener('click', () => {
+  if (document.getElementById('upload-placeholder').style.display !== 'none') return;
+});
+
+/* ═══════════════════════════════════════════
+   FILE LOADING
+═══════════════════════════════════════════ */
+
+function loadFileText(text, name) {
+  showEditor();
+  document.getElementById('editor').value = text;
+  document.getElementById('filename').textContent = name;
+  updateLineNums();
+  applyRdl(text, name);
+  document.getElementById('editor').focus();
+}
+
+document.getElementById('file-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const r = new FileReader();
+  r.onload = ev => loadFileText(ev.target.result, file.name);
+  r.readAsText(file);
+  e.target.value = '';
+});
+
+// Drag and drop anywhere on page
+document.body.addEventListener('dragenter', e => {
+  if (e.dataTransfer.types.includes('Files'))
+    document.getElementById('drop-overlay').classList.add('active');
+});
+document.body.addEventListener('dragover', e => e.preventDefault());
+document.body.addEventListener('dragleave', e => {
+  if (!e.relatedTarget || !document.body.contains(e.relatedTarget))
+    document.getElementById('drop-overlay').classList.remove('active');
+});
+document.body.addEventListener('drop', e => {
+  e.preventDefault();
+  document.getElementById('drop-overlay').classList.remove('active');
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  const r = new FileReader();
+  r.onload = ev => loadFileText(ev.target.result, file.name);
+  r.readAsText(file);
+});
+
+/* ═══════════════════════════════════════════
+   EXAMPLE RDL
+═══════════════════════════════════════════ */
+
+const EXAMPLE_RDL = `// UART Peripheral — PeakRDL-renode example
+// Demonstrates: multiple registers, flag/value fields,
+// onread/onwrite properties, and register arrays.
+
+addrmap UART_Peripheral {
+    default hw = r;
+    default sw = rw;
+
+    // Control register
+    reg CTRL @0x0 {
+        field {} EN[0:0] = 0x0 {
+            sw = rw; hw = r;
+        };
+        field {} TX_EN[1:1] = 0x0 {
+            sw = rw; hw = r;
+        };
+        field {} RX_EN[2:2] = 0x0 {
+            sw = rw; hw = r;
+        };
+        field {} LOOPBACK[3:3] = 0x0 {
+            sw = rw; hw = r;
+        };
+        field {} RSVD[31:4] = 0x0 {
+            sw = r; hw = na;
+        };
+    };
+
+    // Status register — read-only, clear-on-read for error
+    reg STATUS @0x4 {
+        field {} TX_FULL[0:0] = 0x0 {
+            sw = r; hw = w;
+        };
+        field {} RX_EMPTY[1:1] = 0x1 {
+            sw = r; hw = w;
+        };
+        field {} TX_BUSY[2:2] = 0x0 {
+            sw = r; hw = w;
+        };
+        field {} FRAME_ERR[3:3] = 0x0 {
+            sw = rclr; hw = w;
+            onread = rclr;
+        };
+        field {} RSVD[31:4] = 0x0 {
+            sw = r; hw = na;
+        };
+    };
+
+    // Baud rate divisor
+    reg BAUD @0x8 {
+        field {} DIVISOR[15:0] = 0x0045 {
+            sw = rw; hw = r;
+        };
+        field {} RSVD[31:16] = 0x0 {
+            sw = r; hw = na;
+        };
+    };
+
+    // Transmit data
+    reg TX_DATA @0xC {
+        field {} DATA[7:0] = 0x0 {
+            sw = w; hw = r;
+            onwrite = woclr;
+        };
+        field {} RSVD[31:8] = 0x0 {
+            sw = r; hw = na;
+        };
+    };
+
+    // Receive data — read-only, clears on read
+    reg RX_DATA @0x10 {
+        field {} DATA[7:0] = 0x0 {
+            sw = r; hw = w;
+            onread = rclr;
+        };
+        field {} VALID[8:8] = 0x0 {
+            sw = r; hw = w;
+        };
+        field {} RSVD[31:9] = 0x0 {
+            sw = r; hw = na;
+        };
+    };
+
+    // Interrupt enable
+    reg IRQ_EN @0x14 {
+        field {} TX_EMPTY_IE[0:0] = 0x0 { sw = rw; hw = r; };
+        field {} RX_READY_IE[1:1] = 0x0 { sw = rw; hw = r; };
+        field {} ERR_IE[2:2]      = 0x0 { sw = rw; hw = r; };
+        field {} RSVD[31:3]       = 0x0 { sw = r;  hw = na; };
+    };
+};`;
+
+function loadExample() {
+  loadFileText(EXAMPLE_RDL, 'uart_peripheral.rdl');
+}
+</script>
+</body>
+</html>
