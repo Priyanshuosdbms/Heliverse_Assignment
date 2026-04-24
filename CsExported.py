@@ -33,6 +33,11 @@ PUBLIC = ast.AccessibilityMod.PUBLIC
 PROTECTED = ast.AccessibilityMod.PROTECTED
 PRIVATE = ast.AccessibilityMod.PRIVATE
 
+# Sentinel used by generate_value_container_class to signal "emit WithFlag /
+# WithValueField but without an out variable" to generate_field_decl.
+# It is intentionally distinct from None, which means "use WithTaggedFlag".
+_NO_OUT_VAR = object()
+
 
 class RegisterPreprocessor:
     def __init__(self):
@@ -56,10 +61,12 @@ class CSharpGenerator:
 
     def __init__(self, scanned: ScannedState, name: str, namespace: str,
                  make_all_public: bool = False,
-                 no_out_vars: set = None) -> None:
+                 no_out_vars: Optional[set] = None) -> None:
         self.scanned = scanned
         self.name = name if name is not None else scanned.top_name
-        self.no_out_vars = no_out_vars or set()
+        # Must be assigned before reg_classes is built below, because
+        # generate_value_container_class() reads this set immediately.
+        self.no_out_vars: set = no_out_vars if no_out_vars is not None else set()
 
 
         self.ty_register = ast.Type('DoubleWordRegister')
@@ -264,6 +271,28 @@ class CSharpGenerator:
         field_width = field.high - field.low + 1
         field_name_arg = ast.StringLit(field.name.upper())
 
+        # _NO_OUT_VAR is the sentinel passed when the register is in no_out_vars.
+        # It differs from None, which means "use WithTaggedFlag" (the existing default).
+        # With _NO_OUT_VAR we keep WithFlag / WithValueField but simply drop the out arg.
+        if underlying_var is _NO_OUT_VAR:
+            if field_width == 1:
+                return ast.Call(
+                    'WithFlag',
+                    ast.Arg(field.low),
+                    *self.generate_field_modifier(field),
+                    ast.Arg(field_name_arg, name='name'),
+                    ret_ty=self.ty_register
+                )
+            else:
+                return ast.Call(
+                    'WithValueField',
+                    ast.Arg(field.low),
+                    ast.Arg(field_width),
+                    *self.generate_field_modifier(field),
+                    ast.Arg(field_name_arg, name='name'),
+                    ret_ty=self.ty_register
+                )
+
         match (field_width == 1, underlying_var):
             case (True, str(out_var)): return ast.Call(
                 'WithFlag',
@@ -295,7 +324,9 @@ class CSharpGenerator:
         register: Reg
     ) -> ast.Class:
 
-        # Determine whether this register suppresses out variable declarations
+        # True when this register's instance name appears in the no_out_vars set.
+        # register.name is the instance name (e.g. 'ctrl'), which is exactly what
+        # the user passes on the CLI via --no-out-vars.
         suppress_out = register.name in self.no_out_vars
 
         def make_var_decl(field: Field):
@@ -310,7 +341,12 @@ class CSharpGenerator:
             )
 
         def add_field_impl(obj: ast.Node, field: Field):
-            call = self.generate_field_decl(field, None if suppress_out else field.name.upper())
+            # When suppress_out is True, pass the _NO_OUT_VAR sentinel so that
+            # generate_field_decl emits WithFlag/WithValueField WITHOUT the out
+            # argument, instead of the unrelated WithTaggedFlag that None would
+            # trigger for 1-bit fields.
+            var = _NO_OUT_VAR if suppress_out else field.name.upper()
+            call = self.generate_field_decl(field, var)
             call.object = obj
             call.breakline = True
             return call
@@ -342,6 +378,9 @@ class CSharpGenerator:
         return ast.Class(
             name = name,
             access = PUBLIC,
+            # Suppress the IFlagRegisterField / IValueRegisterField member variable
+            # declarations for registers in no_out_vars — they would be unused since
+            # no out arg is emitted.
             fields = ast.Node.join([]) if suppress_out
                      else ast.Node.join(map(make_var_decl, register.fields)),
             methods = ast.Node.join(methods),
@@ -366,7 +405,7 @@ class CSharpGenerator:
 class CSharpExporter:
     def export(self, node: Union[RootNode, AddrmapNode], path: str,
                name: str, namespace: str, all_public: bool,
-               no_out_vars: set = None):
+               no_out_vars: Optional[set] = None):
         top_node = node.top if isinstance(node, RootNode) else node
 
         scanned = RdlDesignScanner(top_node).run()
@@ -375,7 +414,7 @@ class CSharpExporter:
             name = name,
             namespace = namespace,
             make_all_public = all_public,
-            no_out_vars = no_out_vars or set(),
+            no_out_vars = no_out_vars if no_out_vars is not None else set(),
         ).generate_code()
 
         with open(path, 'w') as f:
