@@ -1,0 +1,856 @@
+// =============================================================================
+// MASTER REFERENCE SystemRDL 2.0 FILE FOR peakrdl-renode
+// =============================================================================
+//
+// PURPOSE:
+//   This file is a comprehensive reference / training document for an LLM
+//   (qwen3-coder via Ollama) that converts JSON register-map objects into
+//   valid SystemRDL 2.0 files consumed by peakrdl-renode.
+//
+// SPEC VERSION:
+//   SystemRDL 2.0 (Accellera, 2018).  peakrdl-renode delegates all parsing
+//   to the `systemrdl-compiler` Python package which implements the full
+//   SystemRDL 2.0 spec.  Every construct shown here is valid input.
+//
+// HOW TO READ THIS FILE:
+//   Each section is labelled with a category tag and a short rationale
+//   explaining *why* the construct matters for peakrdl-renode output.
+//   Everything compiles with:
+//       peakrdl renode -n MasterPeripheral -o out.cs master_reference.rdl
+//
+// =============================================================================
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION 0 – TOP-LEVEL PREPROCESSOR DIRECTIVES
+// These are processed before the RDL compiler sees the file.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Conditional compilation (C-style preprocessor)
+`define REGWIDTH_DEFAULT 32
+`define ENABLE_COUNTERS   1
+
+// Structural include of another RDL file (uncomment when used in a real flow)
+// `include "shared_types.rdl"
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION 1 – GLOBAL / FILE-SCOPE ENUM DEFINITIONS
+// Enums defined at file scope can be referenced by any field in the file.
+// peakrdl-renode does NOT emit the enum names into C# directly, but the
+// compiler uses them for reset value validation and encode= assignment.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Simple state-machine enum
+enum periph_state_e {
+    IDLE     = 2'b00 { desc = "Peripheral is idle"; };
+    RUNNING  = 2'b01 { desc = "Peripheral is processing"; };
+    ERROR    = 2'b10 { desc = "Error condition, check STATUS"; };
+    RESERVED = 2'b11;            // value with no extra properties
+};
+
+// Status / error code enum (wider)
+enum error_code_e {
+    NO_ERROR      = 4'h0;
+    PARITY_ERR    = 4'h1;
+    FRAMING_ERR   = 4'h2;
+    OVERFLOW_ERR  = 4'h4;  // note: non-contiguous values are legal
+    TIMEOUT_ERR   = 4'h8;
+};
+
+// Single-bit enum (useful for enable/disable fields)
+enum enable_e {
+    DISABLED = 1'b0 { name = "Disabled"; };
+    ENABLED  = 1'b1 { name = "Enabled";  };
+};
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION 2 – NAMED FIELD TYPE DEFINITIONS (FILE SCOPE)
+// Defining field types once and reusing them avoids copy-paste errors and
+// produces cleaner C# when peakrdl-renode aggregates identical field shapes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// A simple read-write storage field (most common)
+field rw_field_t {
+    sw    = rw;
+    hw    = r;
+};
+
+// A read-only hardware-driven field (no storage element in RTL sense)
+field ro_hw_field_t {
+    sw    = r;
+    hw    = w;
+};
+
+// A write-1-to-clear status/event field
+field w1c_field_t {
+    sw      = rw;
+    hw      = w;
+    onwrite = woclr;   // writing 1 clears; writing 0 has no effect
+};
+
+// A write-1-to-set field
+field w1s_field_t {
+    sw      = rw;
+    hw      = r;
+    onwrite = woset;   // writing 1 sets; writing 0 has no effect
+};
+
+// A write-only field (e.g. command trigger, FIFO push)
+field wo_field_t {
+    sw = w;
+    hw = r;
+};
+
+// A field that clears itself on read (read-to-clear / RCL)
+field rc_field_t {
+    sw     = r;
+    hw     = w;
+    onread = rclr;
+};
+
+// A read-to-set field
+field rs_field_t {
+    sw     = r;
+    hw     = w;
+    onread = rset;
+};
+
+// Counter field – infers increment hardware input in RTL generators;
+// peakrdl-renode exposes this as a readable register field
+field counter_field_t {
+    sw      = r;
+    hw      = w;
+    counter;          // shorthand; implies incrvalue=1
+};
+
+// Saturating up-counter with configurable increment
+field sat_counter_field_t {
+    sw        = r;
+    hw        = w;
+    counter;
+    incrvalue = 4;    // each hardware tick adds 4
+    saturate;         // stops at max, does not wrap
+};
+
+// Hardware-settable, software-clearable interrupt latch
+field irq_latch_field_t {
+    sw         = rw;
+    hw         = w;
+    hwset;            // hardware drives a 'set' pulse to assert
+    onwrite    = woclr; // software writes 1 to clear
+    precedence = hw;  // if read and hw-set happen simultaneously, hw wins
+};
+
+// Field with hardware write-enable (qualified write from hardware side)
+field hw_we_field_t {
+    sw  = rw;
+    hw  = rw;
+    we;               // hardware must assert a write-enable signal
+};
+
+// Field with hardware write-enable-active-low
+field hw_wel_field_t {
+    sw  = rw;
+    hw  = rw;
+    wel;              // write-enable active-low
+};
+
+// Encoded (enum-typed) field template
+field state_field_t {
+    sw     = rw;
+    hw     = r;
+    encode = periph_state_e;
+    reset  = periph_state_e::IDLE;
+};
+
+// Reserved / don't-care field (software cannot access, hardware ignores)
+field rsvd_field_t {
+    sw = na;
+    hw = na;
+};
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION 3 – NAMED REGISTER TYPE DEFINITIONS (FILE SCOPE)
+// Named registers can be instantiated multiple times at different offsets.
+// This is the primary mechanism for array-like register structures.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Basic 32-bit control register with mixed access fields
+reg ctrl_reg_t {
+    name     = "Control Register";
+    desc     = "Generic control register template";
+    regwidth = 32;                  // explicit; 32 is default
+
+    // Enable bit at [0]
+    enable_e ENABLE[1] = enable_e::DISABLED;    // encoded 1-bit field, reset=0
+    // SW-controlled mode [2:1]
+    rw_field_t MODE[2] = 2'b00;
+    // Error latch [4:3] – hardware sets, SW clears
+    irq_latch_field_t ERR_LATCH[2] = 2'b00;
+    // Reserved bits [31:5] – must be named; 'na' access is fine
+    rsvd_field_t RSVD[27] = 27'h0;
+};
+
+// 32-bit status register – all hardware-driven, read-only
+reg status_reg_t {
+    name     = "Status Register";
+    desc     = "Hardware-driven status, read only by software";
+    regwidth = 32;
+
+    ro_hw_field_t DATA_VALID[1] = 1'b0;
+    ro_hw_field_t BUSY[1]       = 1'b0;
+    state_field_t STATE[2]      = periph_state_e::IDLE;
+    error_code_e  ERR_CODE[4]   = error_code_e::NO_ERROR;
+    // Inline anonymous field for remaining bits (also valid syntax)
+    field {} RSVD[24] = 24'h0;
+};
+
+// 16-bit register (regwidth != 32 example)
+reg cfg16_reg_t {
+    name     = "16-bit Configuration";
+    desc     = "Example of a sub-32-bit register";
+    regwidth = 16;
+
+    rw_field_t THRESHOLD[8] = 8'hFF;
+    rw_field_t DIVISOR[8]   = 8'h01;
+};
+
+// 64-bit (double-word) register
+reg dword_reg_t {
+    name     = "64-bit Data Register";
+    desc     = "Covers wide register case; peakrdl-renode wraps as two 32-bit halves in C#";
+    regwidth = 64;
+
+    rw_field_t DATA[64] = 64'h0;
+};
+
+// Interrupt-status register: each bit is w1c
+reg intr_status_reg_t {
+    name = "Interrupt Status Register";
+    desc = "Each bit is set by hardware, cleared by writing 1";
+    regwidth = 32;
+
+    w1c_field_t TX_DONE[1]     = 1'b0;
+    w1c_field_t RX_DONE[1]     = 1'b0;
+    w1c_field_t UNDERFLOW[1]   = 1'b0;
+    w1c_field_t OVERFLOW[1]    = 1'b0;
+    w1c_field_t TIMEOUT[1]     = 1'b0;
+    field {} RSVD[27]          = 27'h0;
+};
+
+// Interrupt-enable register: mirrors intr_status_reg_t bit positions
+reg intr_enable_reg_t {
+    name     = "Interrupt Enable Register";
+    regwidth = 32;
+
+    rw_field_t TX_DONE_EN[1]   = 1'b0;
+    rw_field_t RX_DONE_EN[1]   = 1'b0;
+    rw_field_t UNDERFLOW_EN[1] = 1'b0;
+    rw_field_t OVERFLOW_EN[1]  = 1'b0;
+    rw_field_t TIMEOUT_EN[1]   = 1'b0;
+    field {} RSVD[27]          = 27'h0;
+};
+
+// FIFO data register: write-only push, read-only pop
+reg fifo_reg_t {
+    name     = "FIFO Data Register";
+    desc     = "Write to push, read returns next element";
+    regwidth = 32;
+
+    // NOTE: mixed sw=w and sw=r on the SAME field is not legal.
+    // For FIFO-like behaviour model as two separate logical fields sharing
+    // the same bit-range, OR use a single rw field with custom hw callbacks.
+    // Below uses a single rw field; callbacks are filled in by hand in C#.
+    rw_field_t FIFO_DATA[32] = 32'h0;
+};
+
+// Parameterized register type (SystemRDL 2.0 feature)
+reg #(longint unsigned WIDTH = 8,
+      longint unsigned RST   = 0) generic_data_reg_t {
+    name     = "Generic Data Register";
+    regwidth = 32;
+
+    rw_field_t DATA[WIDTH] = RST;
+    field {} RSVD[32 - WIDTH] = '0;
+};
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION 4 – NAMED REGFILE DEFINITIONS
+// A regfile groups logically related registers.  peakrdl-renode uses the
+// regfile hierarchy to produce nested C# struct names
+// (e.g. Regfile_RegisterType).
+// ─────────────────────────────────────────────────────────────────────────────
+
+regfile uart_channel_rf_t {
+    name = "UART Channel Register File";
+    desc = "One instance per UART channel";
+
+    default regwidth = 32;
+
+    // Default property assignment inside regfile:
+    // all regs in this regfile have sw=rw unless overridden
+    default hw = r;
+
+    ctrl_reg_t         CTRL        @ 0x00;
+    status_reg_t       STATUS      @ 0x04;
+    intr_status_reg_t  INTR_STATUS @ 0x08;
+    intr_enable_reg_t  INTR_ENABLE @ 0x0C;
+    fifo_reg_t         TX_DATA     @ 0x10;
+    fifo_reg_t         RX_DATA     @ 0x14;
+    cfg16_reg_t        BAUD_CFG    @ 0x18;  // 16-bit reg; occupies 4-byte slot
+};
+
+// Parameterized regfile
+regfile #(longint unsigned BASE_OFFSET = 0) dma_channel_rf_t {
+    name = "DMA Channel Register File";
+
+    default regwidth = 32;
+
+    ctrl_reg_t   DMA_CTRL    @ 0x00;
+    rw_field_t   SRC_ADDR[32] = 32'h0;  // inline anonymous reg not legal in regfile;
+                                         // must use named reg types - shown below
+};
+
+// Corrected DMA channel regfile using named registers
+reg dma_addr_reg_t {
+    name = "DMA Address Register";
+    regwidth = 32;
+    rw_field_t ADDR[32] = 32'h0;
+};
+
+reg dma_len_reg_t {
+    name = "DMA Transfer Length";
+    regwidth = 32;
+    rw_field_t LEN[24]  = 24'h0;
+    field {} RSVD[8]    = 8'h0;
+};
+
+regfile dma_channel_rf2_t {
+    name = "DMA Channel v2";
+
+    default regwidth = 32;
+
+    ctrl_reg_t    DMA_CTRL    @ 0x00;
+    dma_addr_reg_t SRC_ADDR   @ 0x04;
+    dma_addr_reg_t DST_ADDR   @ 0x08;
+    dma_len_reg_t  XFER_LEN   @ 0x0C;
+    status_reg_t   DMA_STATUS @ 0x10;
+};
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION 5 – TOP-LEVEL ADDRMAP
+// The addrmap is the root object that peakrdl-renode processes.
+// Everything below lives inside one addrmap.
+// ─────────────────────────────────────────────────────────────────────────────
+
+addrmap MasterPeripheral {
+
+    name    = "Master Reference Peripheral";
+    desc    = "Comprehensive SystemRDL 2.0 reference for peakrdl-renode";
+
+    // ── 5.1  ADDRMAP-LEVEL DEFAULT PROPERTIES ────────────────────────────────
+    // These cascade down to all children unless overridden at a lower scope.
+    default regwidth  = 32;
+    default hw        = r;      // hardware can read all fields by default
+    default sw        = rw;     // software read-write unless overridden
+    default reset     = '0;     // all fields reset to 0 unless stated
+
+
+    // ── 5.2  SINGLE INSTANTIATED REGISTERS (DIRECT PLACEMENT) ────────────────
+
+    // 5.2a  Named type, single instance
+    ctrl_reg_t    CTRL_REG     @ 0x000;
+    status_reg_t  STATUS_REG   @ 0x004;
+
+    // 5.2b  Inline anonymous register (no named type required)
+    reg {
+        name     = "Device ID Register";
+        desc     = "Read-only hardwired device identifier";
+        regwidth = 32;
+
+        field {
+            name  = "VENDOR_ID";
+            desc  = "Vendor identifier";
+            sw    = r;
+            hw    = w;
+            reset = 16'hABCD;
+        } VENDOR_ID[15:0];
+
+        field {
+            name  = "DEVICE_ID";
+            desc  = "Device identifier";
+            sw    = r;
+            hw    = w;
+            reset = 16'h0001;
+        } DEVICE_ID[31:16];
+
+    } DEVICE_ID_REG @ 0x008;
+
+    // 5.2c  Inline anonymous register using bit-range notation
+    reg {
+        name     = "Scratch Register";
+        desc     = "Software-only scratch pad; no hardware connection";
+        regwidth = 32;
+
+        field {
+            sw = rw;
+            hw = na;   // no hardware access at all
+        } SCRATCH[31:0] = 32'hDEADBEEF;
+
+    } SCRATCH_REG @ 0x00C;
+
+    // 5.2d  Register with named bits using [MSB:LSB] notation
+    reg {
+        name = "Mixed-Notation Register";
+        regwidth = 32;
+
+        // Single-bit fields using [N] shorthand
+        field { sw = rw; hw = r; } BIT0[0:0] = 1'b0;
+        field { sw = rw; hw = r; } BIT1[1:1] = 1'b0;
+        // Multi-bit field using [MSB:LSB]
+        field { sw = rw; hw = r; } FIELD_A[7:2] = 6'h0;
+        // Alternate syntax: width[lsb]
+        field { sw = rw; hw = r; } FIELD_B[8] = 8'h0;   // 8 bits starting at [15:8]
+        field { sw = rw; hw = r; } FIELD_C[16] = 16'h0; // upper half
+    } MIXED_REG @ 0x010;
+
+
+    // ── 5.3  REGISTER ARRAYS ─────────────────────────────────────────────────
+    // SystemRDL arrays produce multiple register instances at consecutive
+    // addresses.  peakrdl-renode unrolls them into separate C# definitions.
+
+    // 5.3a  Simple array – 4 identical data registers, stride = 4 bytes
+    generic_data_reg_t #(.WIDTH(16), .RST(16'hFFFF))
+        DATA_REG[4] @ 0x020;          // -> DATA_REG[0..3] at 0x020,0x024,0x028,0x02C
+
+    // 5.3b  Array with explicit stride (useful when stride != regwidth/8)
+    reg {
+        name = "Channel Config";
+        regwidth = 32;
+        rw_field_t CFG[32] = 32'h0;
+    } CHAN_CFG[8] @ 0x040 += 0x8;    // stride = 8 bytes (pad word between each)
+
+    // 5.3c  Multi-dimensional array (matrix of registers)
+    reg {
+        name = "Matrix Element";
+        regwidth = 32;
+        rw_field_t VALUE[32] = 32'h0;
+    } MATRIX[4][4] @ 0x080;          // 4 rows × 4 cols, stride auto = 4 bytes
+                                      // addressed as MATRIX[row][col]
+
+    // ── 5.4  REGFILE INSTANCES ───────────────────────────────────────────────
+
+    // 5.4a  Single regfile instance
+    uart_channel_rf_t  UART0 @ 0x100;
+
+    // 5.4b  Regfile array – 2 UART channels
+    uart_channel_rf_t  UART[2] @ 0x200;   // UART[0] @ 0x200, UART[1] @ 0x220
+                                            // stride = size of uart_channel_rf_t
+
+    // 5.4c  DMA channel regfile
+    dma_channel_rf2_t  DMA_CH0 @ 0x300;
+    dma_channel_rf2_t  DMA_CH1 @ 0x340;
+
+
+    // ── 5.5  NESTED ADDRMAPS ─────────────────────────────────────────────────
+    // peakrdl-renode supports arbitrarily nested addrmaps; each creates a
+    // separate hierarchical namespace in the generated C#.
+
+    addrmap {
+        name = "Timer Subsystem";
+        desc = "Timer registers nested inside the main peripheral map";
+
+        default regwidth = 32;
+
+        reg {
+            name = "Timer Load Register";
+            rw_field_t LOAD[32] = 32'h0;
+        } TIMER_LOAD @ 0x00;
+
+        reg {
+            name = "Timer Count Register";
+            ro_hw_field_t COUNT[32] = 32'h0;
+        } TIMER_COUNT @ 0x04;
+
+        reg {
+            name = "Timer Control";
+            rw_field_t EN[1]        = 1'b0;
+            rw_field_t ONE_SHOT[1]  = 1'b0;
+            rw_field_t INT_EN[1]    = 1'b0;
+            field {} RSVD[29]       = 29'h0;
+        } TIMER_CTRL @ 0x08;
+
+        intr_status_reg_t TIMER_INTR @ 0x0C;
+
+    } TIMER @ 0x400;
+
+
+    // ── 5.6  SIGNAL COMPONENTS ───────────────────────────────────────────────
+    // Signals model external hardware inputs that modulate field behavior.
+    // peakrdl-renode does not directly emit signals as C# properties, but the
+    // RDL compiler requires them to be declared if referenced via 'activehigh'
+    // / 'activelow' or assigned to 'resetsignal', 'incrthreshold', etc.
+
+    signal {} hw_reset_n;           // active-low hardware reset signal
+    signal {} global_we;            // global hardware write-enable
+
+    reg {
+        name = "Register With Signal References";
+        regwidth = 32;
+
+        field {
+            sw          = rw;
+            hw          = rw;
+            resetsignal = hw_reset_n; // this field resets when hw_reset_n asserts
+            we;
+        } SIG_FIELD[8] = 8'h0;
+
+        field {} RSVD[24] = 24'h0;
+    } SIG_REG @ 0x500;
+
+
+    // ── 5.7  MEMORY COMPONENTS ───────────────────────────────────────────────
+    // 'mem' describes a block of storage (e.g. SRAM, descriptor table).
+    // peakrdl-renode maps a mem block as a contiguous address region; fields
+    // inside describe per-element structure.
+
+    mem {
+        name    = "Descriptor Table";
+        desc    = "8-entry × 64-bit DMA descriptor memory";
+        mementries = 8;
+        memwidth   = 64;   // each entry is 64 bits wide
+
+        // Optional: structure per entry using register definitions
+        reg {
+            name = "Descriptor Entry";
+            regwidth = 64;
+            rw_field_t ADDR[32] = 32'h0;
+            rw_field_t LEN[24]  = 24'h0;
+            rw_field_t FLAGS[8] = 8'h0;
+        } ENTRY;
+
+    } DESC_TABLE @ 0x600;
+
+
+    // ── 5.8  PROPERTY ASSIGNMENT OVERRIDES ───────────────────────────────────
+    // After instantiation, properties can be overridden via direct assignment
+    // on specific instances without redefining the type.
+
+    intr_status_reg_t  IRQ_STATUS @ 0x700;
+    intr_enable_reg_t  IRQ_ENABLE @ 0x704;
+
+    // Override: force IRQ_STATUS.TX_DONE to be read-only (ignore write)
+    // Syntax: instance_path.field_name->property = value;
+    IRQ_STATUS.TX_DONE->sw = r;
+
+
+    // ── 5.9  ALIAS REGISTERS ─────────────────────────────────────────────────
+    // An alias register maps a different address to the same storage as its
+    // primary register. Writes to either address affect the same bits.
+    // peakrdl-renode emits both addresses in C# with appropriate aliases.
+
+    ctrl_reg_t  CTRL_ALIAS     @ 0x710;
+    alias CTRL_ALIAS = CTRL_REG;   // CTRL_ALIAS at 0x710 aliases CTRL_REG at 0x000
+
+
+    // ── 5.10  EXPLICIT ALIGNMENT AND ADDRESS STEPPING ────────────────────────
+    // 'alignment' on an addrmap forces the base to be aligned.
+    // Individual registers can use '@' for absolute or relative placement.
+
+    reg {
+        name = "Aligned Register A";
+        regwidth = 32;
+        rw_field_t DATA[32] = 32'h0;
+    } ALIGNED_A @ 0x800;           // explicit absolute offset
+
+    reg {
+        name = "Aligned Register B";
+        regwidth = 32;
+        rw_field_t DATA[32] = 32'h0;
+    } ALIGNED_B;                   // no '@': placed immediately after ALIGNED_A
+
+    reg {
+        name = "Aligned Register C";
+        regwidth = 32;
+        rw_field_t DATA[32] = 32'h0;
+    } ALIGNED_C @ 0x810;           // explicit, leaving gap after ALIGNED_B
+
+
+    // ── 5.11  DEFAULT PROPERTY CASCADING EXAMPLE ─────────────────────────────
+    // Demonstrate setting defaults for a block of registers inline.
+    // (Real use: wrapping a block of read-only configuration fuse registers.)
+
+    // Inside an anonymous scope-like block is done at addrmap or regfile scope
+    // by reassigning defaults before the relevant instantiations.
+
+    default sw = r;                 // from here on: all new regs are read-only
+
+    reg {
+        name = "Fuse Register 0";
+        regwidth = 32;
+        // sw inherits 'r' from the addrmap default above
+        field { hw = w; } FUSE_DATA[32] = 32'hCAFEBABE;
+    } FUSE0 @ 0x900;
+
+    reg {
+        name = "Fuse Register 1";
+        regwidth = 32;
+        field { hw = w; } FUSE_DATA[32] = 32'h12345678;
+    } FUSE1 @ 0x904;
+
+    // Reset the default back to rw for subsequent registers
+    default sw = rw;
+
+
+    // ── 5.12  REGISTERS WITH MULTIPLE RESET DOMAINS ──────────────────────────
+    // Each field can have its own reset value and optionally its own
+    // resetsignal; this is common in multi-clock-domain peripherals.
+
+    reg {
+        name     = "Multi-Reset Register";
+        regwidth = 32;
+
+        field {
+            sw    = rw;
+            hw    = r;
+            reset = 8'hAA;         // non-zero reset
+        } FIELD_A[7:0];
+
+        field {
+            sw    = rw;
+            hw    = r;
+            reset = 8'h55;
+        } FIELD_B[15:8];
+
+        field {
+            sw    = rw;
+            hw    = r;
+            reset = 16'hBEEF;
+        } FIELD_C[31:16];
+
+    } MULTI_RST_REG @ 0xA00;
+
+
+    // ── 5.13  COUNTER REGISTERS ──────────────────────────────────────────────
+
+    reg {
+        name     = "Performance Counter";
+        regwidth = 32;
+
+        // A simple up-counter; hardware increments on each event pulse
+        field {
+            sw        = rw;    // rw so software can clear by writing 0
+            hw        = w;
+            counter;           // implies: incr, incrvalue=1
+            overflow;          // generates an overflow sticky bit
+        } COUNT[31:0] = 32'h0;
+
+    } PERF_CNT @ 0xA04;
+
+    reg {
+        name     = "Threshold Counter";
+        regwidth = 32;
+
+        // Counter that triggers an event when it crosses a threshold
+        field {
+            sw            = rw;
+            hw            = w;
+            counter;
+            incrvalue     = 1;
+            incrthreshold = 32'hFFFF;   // trigger at this value
+            overflow;
+        } THR_COUNT[31:0] = 32'h0;
+
+    } THR_CNT @ 0xA08;
+
+
+    // ── 5.14  EXTERNAL COMPONENTS ────────────────────────────────────────────
+    // 'external' keyword tells peakrdl that this component's storage is
+    // implemented outside the generated RTL/model.  peakrdl-renode still
+    // generates C# stubs with callback placeholders.
+
+    external reg {
+        name = "External Hardware Register";
+        desc = "Storage is in custom hardware; reads/writes go through callbacks";
+        regwidth = 32;
+
+        field {
+            sw = rw;
+            hw = rw;
+        } EXT_DATA[32] = 32'h0;
+
+    } EXT_REG @ 0xB00;
+
+    // External regfile (entire block is outside)
+    external regfile {
+        name = "External Register Block";
+
+        default regwidth = 32;
+
+        reg { rw_field_t DATA[32] = 32'h0; } EXT_A @ 0x00;
+        reg { rw_field_t DATA[32] = 32'h0; } EXT_B @ 0x04;
+
+    } EXT_RF @ 0xC00;
+
+
+    // ── 5.15  SHARED / INSTANTIATE-ONCE COMPONENTS ───────────────────────────
+    // 'shared' keyword allows a component definition to be instantiated in
+    // multiple places within an addrmap without each copy being a separate
+    // storage element (they all point to the same physical resource).
+    // NOTE: Use with care – peakrdl-renode will emit only one C# definition.
+
+    // (shared instances are typically used across addrmap boundaries via
+    //  parameterized includes; shown here for completeness)
+
+    // shared reg { ... } – uncomment if needed in your flow
+    // shared ctrl_reg_t SHARED_CTRL;
+
+
+    // ── 5.16  USER-DEFINED PROPERTIES (UDP) ──────────────────────────────────
+    // UDPs let you attach custom metadata to components.  peakrdl-renode
+    // ignores unknown UDPs but the compiler validates their types and targets.
+
+    // Declare at addrmap scope or file scope
+    // (declaration must come before use, typically placed near the top of
+    //  the file; shown here for co-location with usage example)
+
+    // prop hw_block_id { type = string; component = addrmap | regfile | reg; };
+    // CTRL_REG->hw_block_id = "APB_CTRL_v2";
+
+    // Numeric UDP
+    // prop security_level { type = longint unsigned; component = reg | field; default = 0; };
+    // STATUS_REG->security_level = 3;
+
+
+    // ── 5.17  PARAMETERIZED INSTANTIATION EXAMPLES ───────────────────────────
+
+    // Named type with non-default parameters
+    generic_data_reg_t #(.WIDTH(32), .RST(32'hFFFFFFFF)) DATA_REG_32 @ 0xD00;
+
+    // Named type with default parameters (explicit)
+    generic_data_reg_t #(.WIDTH(8)) DATA_REG_8  @ 0xD04;
+
+
+    // ── 5.18  REGISTERS WITH NO FIELDS (PADDING / HOLES) ────────────────────
+    // Sometimes a register map has holes at certain offsets.  The cleanest
+    // approach is simply to not place anything there; however, if you need
+    // explicit reserved registers (e.g., peakrdl-renode must see them for
+    // address-space continuity), add a register with a single reserved field.
+
+    reg {
+        name = "Reserved Hole Register";
+        desc = "Placeholder; reads return 0, writes are ignored";
+        regwidth = 32;
+
+        field {
+            sw    = r;
+            hw    = na;
+            reset = 32'h0;
+        } RSVD[31:0];
+
+    } HOLE_REG @ 0xE00;
+
+
+    // ── 5.19  BRIDGE / SUB-MAP (addrmap inside addrmap with explicit size) ───
+
+    addrmap {
+        name    = "GPIO Subsystem";
+        desc    = "Subordinate address map for GPIO block";
+
+        // Explicitly set the address space size (optional but good practice)
+        // alignment = 0x100;  // uncomment to force 256-byte alignment
+
+        default regwidth = 32;
+
+        reg {
+            name = "GPIO Direction";
+            desc = "1=output, 0=input per pin";
+            rw_field_t DIR[32] = 32'h0;
+        } GPIO_DIR @ 0x00;
+
+        reg {
+            name = "GPIO Output Data";
+            rw_field_t OUT[32] = 32'h0;
+        } GPIO_OUT @ 0x04;
+
+        reg {
+            name = "GPIO Input Data";
+            desc = "Read-only capture of pin state";
+            ro_hw_field_t IN[32] = 32'h0;
+        } GPIO_IN @ 0x08;
+
+        reg {
+            name = "GPIO Set Register";
+            desc = "Write 1 to set corresponding GPIO_OUT bit";
+            wo_field_t SET[32] = 32'h0;
+        } GPIO_SET @ 0x0C;
+
+        reg {
+            name = "GPIO Clear Register";
+            desc = "Write 1 to clear corresponding GPIO_OUT bit";
+            wo_field_t CLR[32] = 32'h0;
+        } GPIO_CLR @ 0x10;
+
+    } GPIO @ 0xF00;
+
+}; // end addrmap MasterPeripheral
+
+
+// =============================================================================
+// APPENDIX: QUICK-REFERENCE — FIELD PROPERTY CHEAT SHEET
+// =============================================================================
+//
+// SOFTWARE ACCESS (sw):  rw | r | w | na
+// HARDWARE ACCESS (hw):  r  | w | rw | na
+//
+// ON-WRITE MODIFIERS (onwrite):
+//   woclr  – write 1 clears the bit  (W1C)
+//   woset  – write 1 sets  the bit   (W1S)
+//   wot    – write 1 toggles         (W1T)
+//   wzc    – write 0 clears          (W0C)
+//   wzs    – write 0 sets            (W0S)
+//   wzt    – write 0 toggles         (W0T)
+//   wclr   – any write clears entire field
+//   wset   – any write sets   entire field
+//
+// ON-READ  MODIFIERS (onread):
+//   rclr   – reading clears the field  (RCL / read-to-clear)
+//   rset   – reading sets   the field
+//   ruser  – user-defined; requires custom exporter handling
+//
+// HARDWARE MODIFIERS:
+//   hwset       – dedicated hardware set pulse
+//   hwclr       – dedicated hardware clear pulse
+//   we          – hardware write-enable (active-high)
+//   wel         – hardware write-enable (active-low)
+//   swwe        – software write-enable (separate control field)
+//   swwel       – software write-enable (active-low)
+//   precedence  – hw | sw  (which wins simultaneous access)
+//
+// COUNTER PROPERTIES:
+//   counter           – marks field as a counter
+//   incrvalue  = N    – increment per tick
+//   decrvalue  = N    – decrement per tick (for down-counters)
+//   incrthreshold = V – threshold value for event generation
+//   overflow          – enable overflow sticky flag
+//   underflow         – enable underflow sticky flag
+//   saturate          – saturate at max instead of wrapping
+//   decrsaturate      – saturate at 0   instead of wrapping
+//
+// RESET:
+//   reset       = <value>   – per-field reset value (overrides addrmap default)
+//   resetsignal = <signal>  – ties reset to a specific signal instance
+//
+// DESCRIPTOR PROPERTIES (informational; used by doc generators):
+//   name  = "string"    – human-readable name
+//   desc  = "string"    – longer description (Markdown supported by some tools)
+//
+// REGWIDTH VALUES SUPPORTED BY peakrdl-renode:
+//   8, 16, 32, 64   (must be a power of 2; 32 is the most common / default)
+//
+// =============================================================================
