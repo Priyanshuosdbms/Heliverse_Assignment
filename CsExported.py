@@ -329,7 +329,17 @@ class CSharpGenerator:
         # the user passes on the CLI via --no-out-vars.
         suppress_out = register.name in self.no_out_vars
 
+        def _is_read_only(field: Field) -> bool:
+            # A field is read-only when software can read it but cannot write it.
+            # Such fields do not need an out variable because the peripheral code
+            # never writes back to them from the C# side; the hardware drives them.
+            return field.is_sw_readable and not field.is_sw_writable
+
         def make_var_decl(field: Field):
+            # Read-only fields get no IFlagRegisterField / IValueRegisterField
+            # member variable — there is no out arg to assign into one.
+            if _is_read_only(field):
+                return None
             field_width = field.high - field.low + 1
             return ast.VariableDecl(
                 name = field.name.upper(),
@@ -341,11 +351,14 @@ class CSharpGenerator:
             )
 
         def add_field_impl(obj: ast.Node, field: Field):
-            # When suppress_out is True, pass the _NO_OUT_VAR sentinel so that
-            # generate_field_decl emits WithFlag/WithValueField WITHOUT the out
-            # argument, instead of the unrelated WithTaggedFlag that None would
-            # trigger for 1-bit fields.
-            var = _NO_OUT_VAR if suppress_out else field.name.upper()
+            # Determine whether to suppress the out variable for this field:
+            #   * Always suppress when the whole register is in no_out_vars.
+            #   * Also suppress when the individual field is read-only: a
+            #     read-only field is driven by hardware, so the C# peripheral
+            #     code never needs to write to it, making the out variable
+            #     and its IFlag/IValueRegisterField declaration useless.
+            suppress = suppress_out or _is_read_only(field)
+            var = _NO_OUT_VAR if suppress else field.name.upper()
             call = self.generate_field_decl(field, var)
             call.object = obj
             call.breakline = True
@@ -379,10 +392,14 @@ class CSharpGenerator:
             name = name,
             access = PUBLIC,
             # Suppress the IFlagRegisterField / IValueRegisterField member variable
-            # declarations for registers in no_out_vars — they would be unused since
-            # no out arg is emitted.
+            # declarations for:
+            #   - all fields when the register is in no_out_vars, and
+            #   - individual read-only fields (make_var_decl returns None for those).
             fields = ast.Node.join([]) if suppress_out
-                     else ast.Node.join(map(make_var_decl, register.fields)),
+                     else ast.Node.join(
+                         decl for decl in map(make_var_decl, register.fields)
+                         if decl is not None
+                     ),
             methods = ast.Node.join(methods),
             struct = True
         )
