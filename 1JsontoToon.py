@@ -14,6 +14,19 @@ Usage:
     python json_to_toon.py               # uses hardcoded INPUT_PATH / OUTPUT_PATH
     python json_to_toon.py in.json       # writes in.toon next to in.json
     python json_to_toon.py in.json out.toon
+
+
+vllm serve Qwen/Qwen3.6-27B-FP8 \
+  --tensor-parallel-size 4 \
+  --max-model-len 108000 \
+  --gpu-memory-utilization 0.92 \
+  --kv-cache-dtype fp8 \
+  --enable-prefix-caching \
+  --enable-chunked-prefill \
+  --max-num-batched-tokens 108000 \
+  --max-num-seqs 8 \
+  --reasoning-parser qwen3 \
+  --speculative-config '{"method": "mtp", "num_speculative_tokens": 2}'
 """
 
 import subprocess
