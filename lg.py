@@ -70,6 +70,19 @@ Compare updates against project-specific tags (e.g., #bugfix, #feature-dev, #dep
 
 Evaluate whether the recent changes logged in the ticket structurally and logically align with the tags assigned to it. Flag clear anomalies if a tag states one thing but text logs describe another.
 
+Feature A: Pre-Edit Coverage & Tag Alignment Pipeline
+Endpoint Objective: Expose a secure POST endpoint /api/v1/reviewer/validate-draft that accepts the current ticket_id, the active tags, and the user's pending_draft_text.
+
+The Context Aggregation: FastAPI will fetch the historical journals and descriptions for that ticket ID. It will bundle the entire historical timeline and inject it into a specialized Qwen 3.6 system prompt alongside the user's pending draft.
+
+LLM Evaluation Logic (Qwen 3.6 via vLLM): The model must execute a three-part deterministic analysis:
+
+Historical Coverage Check: Read through unresolved issues, questions raised by team members in previous journals, or tasks outlined in the ticket description. Cross-reference them with the user's pending draft. List exactly which points have been successfully addressed and which critical context points are missing or overlooked.
+
+Tag Alignment Check: Evaluate if the draft text logically aligns with the current or intended tags (e.g., if the user is keeping the tag #bugfix, does the draft text actually detail a code repair or regression fix? If they write about writing docs instead, flag a mismatch).
+
+Contradiction Detection: Check if the pending edit introduces information that directly conflicts with facts already verified in the historical log.
+
 Feature B: Automated Strategic Summarization via Qwen 3.6
 Send the cleaned text data to the local vLLM endpoint running Qwen 3.6. Leverage the model's native structural tracking capabilities. The LLM output must be parsed cleanly into a structured JSON schema via FastAPI using Pydantic validation (utilizing vLLM's response_format JSON mode feature), returning exactly two sections:
 
