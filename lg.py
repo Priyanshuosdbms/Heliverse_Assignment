@@ -1,90 +1,106 @@
-Here is a comprehensive, production-grade master prompt designed to be fed into any advanced AI code generator (like Claude, GPT, or an LLM coding assistant). It explicitly structures your tech stack (Next.js + FastAPI) and leaves absolutely no stones unturned based on your exact planning notes.
+Master System Prompt: Enterprise Suite Multi-Tenant Redmine Reviewer Workspace (vLLM + Qwen 3.6)
+1. Project Overview & Ecosystem Architecture
+You are an expert enterprise systems architect and full-stack software engineer. Your goal is to generate a fully functioning, production-ready workspace application called "H.D. (Planning & Design) - Redmine Reviewer".
 
-Copy and paste the text below directly into your AI tool of choice:
+This application is a dedicated sub-application living inside a larger Master Enterprise Hub Website that hosts a diverse suite of internal engineering and productivity applications. The backend intelligence is driven by a self-hosted vLLM inference engine running the Qwen 3.6 model series, chosen for its advanced agentic reasoning, structured schema execution, and long-context capabilities.
 
----
+Core Tech Stack
+Frontend Portal & Sub-App: Next.js (App Router, TypeScript, Tailwind CSS, shadcn/ui, Lucide Icons)
 
-# Master System Prompt: Industrial Redmine Ticket Checker & Split-View Analyzer
+Split-Panel Mechanics: react-resizable-panels
 
-## 1. Project Overview & Objective
+Backend Suite Hub: FastAPI (Python 3.11+, Pydantic v2, SQLAlchemy/SQLModel, Async/Await)
 
-You are an expert enterprise systems architect and full-stack software engineer. Your goal is to generate a fully functioning, production-ready workspace application called **"H.D. (Planning & Design)"**.
-The app is a specialized **Redmine Ticket Checker** that provides users with a side-by-side workspace within Google Chrome. It displays a master controls dashboard on one side and a specific Redmine ticket instance on the other. It captures real-time modifications, evaluates updates against semantic tags, and leverages an LLM to generate intelligent summaries and structural task tracking.
+LLM Engine: vLLM Server hosting Qwen/Qwen3.6 (accessed via FastAPI using an async, OpenAI-compatible completion client)
 
-### Core Tech Stack
+Database: PostgreSQL (for tracking evaluation histories, global suite application registries, and instance mappings)
 
-* **Frontend:** Next.js (App Router, TypeScript, Tailwind CSS, shadcn/ui, Lucide Icons)
-* **Split-Panel Mechanics:** `react-resizable-panels` (or a cross-origin window/extension bridge if frames are blocked)
-* **Backend:** FastAPI (Python 3.11+, Pydantic v2, SQLAlchemy/SQLModel, Async/Await)
-* **Database:** PostgreSQL (for saving evaluation history, config states, and instance tokens)
-* **LLM Integration:** LangChain / OpenAI or Anthropic API SDKs mapped within FastAPI
+2. Comprehensive Step-by-Step User Workflow & Navigation
+Step 1: The Master Portal Website Hub (Application Grid)
+Initial State: The user lands on the primary corporate central dashboard ("Master Portal"). This hub renders a clean, searchable grid of accessible business and engineering applications.
 
----
+The App Grid UI: The portal displays tiles for the following application suite:
 
-## 2. Comprehensive Architectural & Step-by-Step Workflow
+Renode Peripheral Generator (Mock/Placeholder App Tile)
 
-### Step 1: The Master Home Page (Next.js Dashboard)
+RTS Generator (Mock/Placeholder App Tile)
 
-* **UI Components:** Build a sleek, minimalist home dashboard layout.
-* **The Core Trigger:** Provide a central component titled **"Redmine Ticket Summary & Checker"**. This component lists active tickets fetched via the FastAPI backend from the Redmine REST API.
-* **Multi-Instance Logic:** When a user clicks a ticket, the system must cross-reference available Redmine deployment URLs. If multiple Redmine instances exist/are mapped to that project context, intercept the click and display an elegant shadcn/ui Modal/Dialog. The modal must prompt the user: *"Multiple Redmine instances detected. Please select the correct workspace to launch."*
-* **Routing Action:** Once selected, capture the specific ticket ID and target instance base URL, then transition the user into the Workspace Shell view.
+Translator (Mock/Placeholder App Tile)
 
-### Step 2: The Split Workspace Window Shell
+Redmine Reviewer (Active Core Target Application)
 
-* **Visual Layout:** Replicate a clean native split-view dashboard (simulating Chrome's side-by-side browser look). The left side must render the **"Redmine Checker Controls"** (Our custom Next.js UI). The right side must load the **Target Redmine Ticket**.
-* **Technical Implementation Requirement:** 1.  *Primary Path:* Attempt an `<iframe>` implementation using `react-resizable-panels`. To prevent `X-Frame-Options: SAMEORIGIN` blockages typical of enterprise Redmine setups, the FastAPI backend must act as a streaming reverse-proxy or rewrite headers *OR* provide a fallback button that triggers a perfectly positioned, programmatic side-by-side browser window placement via standard `window.open(..., left, width)` configurations.
-2.  *State Preservation:* Ensure that split divider width percentages are cached in `localStorage` so a user’s layout preference persists on page refresh.
+The App Launch: The user navigates this app-grid and clicks on the "Redmine Reviewer" application tile.
 
-### Step 3: Real-Time Data Capture & Action Pipeline
+Redirection: The core portal uses Next.js routing to seamlessly transition the user from the master marketplace layout into the dedicated Redmine Reviewer workspace environment, passing along user session headers securely.
 
-* **The Action Button:** On the left side ("Redmine Checker" dashboard), place a prominent, high-visibility action button labeled **"Capture & Analyze Ticket Updates"**.
-* **The Capture Event:** When the user initiates a ticket update or clicks this button, the Next.js frontend sends an async request to FastAPI. FastAPI uses the Redmine API token to scrape the live text payload, historical journals, and comments of that explicit ticket ID.
+Step 2: Redmine Reviewer App Home Page & Instance Interception
+The Interface: Inside the Redmine Reviewer sub-app, the user is presented with a dashboard displaying ticket workflows, historical checks, and project groups.
 
----
+The Action: The user selects a specific project tracking card or selects a ticket overview item labeled "Redmine Ticket Summary & Checker".
 
-## 3. Deep-Dive Backend Features & Functional Scope (FastAPI & LLM)
+Multi-Instance Resolution: Because our enterprise works across multiple client workspaces, when the user selects the ticket, the system must cross-reference available Redmine deployment targets. If multiple Redmine server instances are found for that project domain, intercept the navigation and show an elegant shadcn/ui Modal/Dialog.
 
-You must write explicit FastAPI route endpoints (`/api/v1/tickets/...`) to execute the following core evaluation criteria:
+The Selection Prompt: The modal must explicitly state: "Multiple Redmine instances detected. Please choose the correct ticket instance workspace to launch into Split View." The user clicks the correct target instance.
 
-### Feature A: Evaluation & Tag Validation
+Step 3: The Split Workspace Window Shell
+Visual Layout: Once the instance is confirmed, the app launches into a split-screen dashboard view (simulating Chrome's native side-by-side browser tab layout).
 
-* Parse the captured ticket markdown text and journals.
-* Compare updates against project-specific "Relevant Tags" (e.g., `#bugfix`, `#feature-dev`, `#deployment`, `#code-review`).
-* Evaluate whether the changes logged in the ticket structurally and logically align with the tags assigned to it. Flag anomalies if a tag states one thing but text logs describe another.
+Panel Configuration: Using react-resizable-panels, the screen is split vertically:
 
-### Feature B: Automated Strategic Summarization
+Left Panel: The Next.js "Redmine Checker Controls" interface.
 
-Send the cleaned text data to an LLM provider using a highly engineered, deterministic system prompt. The LLM output must be parsed cleanly into a structured JSON schema using Pydantic, returning exactly two sections:
+Right Panel: An HTML <iframe> displaying the targeted, active Redmine Ticket Instance webpage.
 
-1. **What has been done so far:** A highly organized, chronological, and structural breakdown of historical progress ("planned form").
-2. **Current Track & Impediments:** A focused summary of what the team is currently working on next, along with an explicit list of highlighted blockers or issues currently faced by the engineering team.
+Technical Resilience / Fallbacks: If a specific Redmine instance blocks framing via X-Frame-Options: SAMEORIGIN, the FastAPI backend must act as an on-the-fly proxy to sanitize headers OR the UI must execute a standard programmatic dual-window snapping command (window.open using explicit screen coordinate math to snap two separate browser windows perfectly side-by-side).
 
-### Feature C: Historical Archiving & Context Management
+State Preservation: Cache split divider width percentages in localStorage to ensure workspace persistence across manual browser refreshes.
 
-* **Historying Tool:** Build a dedicated PostgreSQL database table (`ticket_history`) that logs every automated check, storing the ticket ID, timestamp, the captured text snapshot, and the resulting LLM evaluation payload. This allows users to view previous "snapshots" of their ticket health over time.
-* **Context Window Mitigation (Crucial Constraint):** Long-running Redmine tickets contain thousands of lines of messy HTML/Markdown strings. Implement a rigorous data-cleaning utility in FastAPI before feeding data to the LLM:
-* Strip out redundant CSS, user signatures, heavy markup tags, and repeating boilerplate navigation links.
-* Implement a token counter tool (`tiktoken`). If the token payload exceeds standard model safety limits, execute an iterative summary truncation loop or a semantic chunk-merging approach to prevent LLM context overflows.
+Step 4: Real-Time Data Capture & Action Pipeline
+The Action Button: On the left side ("Redmine Checker" dashboard), place a prominent, high-visibility action button labeled "Capture & Analyze Ticket Updates".
 
+The Capture Event: When clicked, the Next.js frontend coordinates with the FastAPI backend. FastAPI makes an authenticated background API call directly to the target Redmine instance using the user’s secure API token to pull the latest ticket description text, journals, and comments.
 
+3. Deep-Dive Backend Features & Functional Scope (FastAPI & vLLM / Qwen 3.6)
+Write explicit FastAPI route endpoints (/api/v1/reviewer/...) to execute the following core evaluation criteria:
 
----
+Feature A: Evaluation & Tag Validation
+Parse the captured ticket markdown text and chronological journals.
 
-## 4. Technical Deliverables & Code Layout Request
+Compare updates against project-specific tags (e.g., #bugfix, #feature-dev, #deployment, #code-review).
 
+Evaluate whether the recent changes logged in the ticket structurally and logically align with the tags assigned to it. Flag clear anomalies if a tag states one thing but text logs describe another.
+
+Feature B: Automated Strategic Summarization via Qwen 3.6
+Send the cleaned text data to the local vLLM endpoint running Qwen 3.6. Leverage the model's native structural tracking capabilities. The LLM output must be parsed cleanly into a structured JSON schema via FastAPI using Pydantic validation (utilizing vLLM's response_format JSON mode feature), returning exactly two sections:
+
+What has been done so far: A highly organized, chronological, and structural breakdown of historical progress ("planned form").
+
+Current Track & Impediments: A focused summary of what the team is currently working on next, along with an explicit list of highlighted blockers or issues currently faced by the engineering team.
+
+Feature C: Historical Archiving & Context Management
+Historying Tool: Build a dedicated PostgreSQL database table (ticket_history) that logs every automated check, storing the ticket ID, timestamp, the captured text snapshot, and the resulting JSON evaluation payload. This allows users to view previous "snapshots" of their ticket health over time.
+
+Context Window Mitigation (Crucial Constraint): Long-running Redmine tickets contain thousands of lines of messy HTML/Markdown strings. Implement a rigorous data-cleaning utility in FastAPI before feeding data to the LLM:
+
+Strip out redundant CSS, user signatures, heavy markup tags, and repeating boilerplate navigation links.
+
+Implement a token counter tool (tiktoken or the native Qwen tokenizer). If the token payload exceeds standard model safety limits, execute an iterative summary truncation loop or a semantic chunk-merging approach to prevent LLM context overflows, making optimal use of Qwen 3.6's large context window capacity.
+
+4. Technical Deliverables & Code Layout Request
 Please generate the file structures and complete code blocks for this application following this layout:
 
-1. **FastAPI Backend (`main.py`, `schemas.py`, `analyzer.py`):**
-* Async endpoints for fetching Redmine tickets, managing multi-tenant instance settings, and processing LLM analysis pipelines.
-* Clean error boundaries for missing Redmine API keys or token expirations.
+FastAPI Backend Architecture:
 
+/api/v1/apps/router.py: Simple registry proving this app is a child of a larger suite, holding metadata strings for Renode Peripheral Generator, RTS Generator, Translator, and Redmine Reviewer.
 
-2. **Next.js Frontend (`/app/dashboard/page.tsx`, `/components/SplitWorkspace.tsx`):**
-* Tailwind implementation of the side-by-side draggable panels.
-* Dialog boxes for handling multiple ticket instances.
-* Interactive states for the main analyzer button showing loading frames and rendering the final dual-section structured summary outputs cleanly.
+/api/v1/reviewer/analyzer.py: Ticket data cleansing, tokenizer context limiting, and an AsyncOpenAI client setup mapped to the vLLM container endpoint executing the Qwen 3.6 structured summarization pipeline.
 
+Next.js Frontend Workspace:
 
+/app/portal/page.tsx: The master website hub containing the 4 application dashboard cards layout (Renode Peripheral Generator, RTS Generator, Translator, Redmine Reviewer).
 
-*Begin generating the code step-by-step, starting with the FastAPI architecture.*
+/app/redmine-reviewer/page.tsx: App dashboard tracking tickets and instance selection states.
+
+/components/reviewer/SplitWorkspace.tsx: Draggable, dual-panel layout rendering the checker utilities alongside the secure target frame.
+
+Begin generating the code step-by-step, starting with the FastAPI architecture.
