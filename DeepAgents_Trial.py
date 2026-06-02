@@ -17,6 +17,22 @@ Start your vLLM server first:
         --trust-remote-code \
         --tool-call-parser hermes \
         --enable-auto-tool-choice
+
+        # Install deps
+pip install deepagents langchain-openai
+
+# Run any strategy
+python deepagents_batching.py static
+python deepagents_batching.py mapreduce
+python deepagents_batching.py pipeline
+python deepagents_batching.py scatter
+python deepagents_batching.py file --input /path/to/data.jsonl
+python deepagents_batching.py priority
+
+# Point to a different vLLM endpoint or model
+python deepagents_batching.py mapreduce \
+  --vllm-url http://192.168.1.10:8000/v1 \
+  --model Qwen/Qwen3-30B-A3B
 """
 
 import json
