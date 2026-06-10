@@ -2,191 +2,363 @@
 telemetry_enricher.py
 ─────────────────────
 Reads:
-  • SSD Telemetry Specification (Excel, all sheets)
-  • DB attribute CSV  [TABLE_NAME, COLUMN_NAME, ...]
+  • SSD Telemetry Specification  (Excel, all sheets)
+  • DB attribute CSV             [TABLE_NAME, COLUMN_NAME, ...]
 
-Queries Qwen3 (vLLM OpenAI-compatible endpoint) to produce
-  [TABLE_NAME, COLUMN_NAME, table_description, column_description]
+For each attribute:
+  1. Uses sentence-transformer embeddings to semantically retrieve the most
+     relevant chunks from the spec (no direct string matching needed).
+  2. Queries Qwen3 on vLLM to produce column_description.
 
-Outputs: enriched_attributes.csv
+After all columns in a table are done:
+  3. Concatenates all column descriptions and asks Qwen3 to write a single
+     coherent table_description sentence from them.
+
+Output: enriched_attributes.csv  [TABLE_NAME, COLUMN_NAME,
+                                   table_description, column_description]
 """
-
-import os
-import re
-import json
-import time
-import logging
-import textwrap
+import requests
+import os, re, json, time, logging, textwrap
+import numpy as np
 import pandas as pd
-from openai import OpenAI
 from pathlib import Path
+from openai import OpenAI
 
 # ── Config ────────────────────────────────────────────────────────────────────
-VLLM_BASE_URL   = "http://localhost:8000/v1"   # change to your vLLM host
-VLLM_API_KEY    = "EMPTY"                       # vLLM default
-MODEL_NAME      = "Qwen/Qwen3-7B"              # or Qwen3-6B-Instruct etc.
+VLLM_BASE_URL   = "http://localhost:8000/v1"   # ← your vLLM host
+OLLAMA_URL = "http://localhost:11434"
+VLLM_API_KEY    = "EMPTY"
+MODEL_NAME      = "Qwen/Qwen3-7B"             # ← exact model name on vLLM
 EXCEL_SPEC_PATH = "SSD_Telemetry_Specification.xlsx"
 ATTRIBUTES_CSV  = "db_attributes.csv"
 OUTPUT_CSV      = "enriched_attributes.csv"
-MAX_RETRIES     = 3
-RETRY_DELAY     = 2   # seconds between retries
-MAX_SPEC_CHARS  = 12_000  # cap spec context sent per request to avoid OOM
+# Embedding model (runs locally, no GPU needed for retrieval)
+EMBED_MODEL = "mxbai-embed-large"
 
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s [%(levelname)s] %(message)s")
+# How many spec chunks to feed the LLM per attribute
+TOP_K_CHUNKS    = 6
+# Lines per chunk when splitting the spec
+CHUNK_SIZE      = 15
+# LLM call settings
+MAX_RETRIES     = 3
+RETRY_DELAY_SEC = 3
+LLM_TEMPERATURE = 0.1
+LLM_MAX_TOKENS  = 254_000
+# ─────────────────────────────────────────────────────────────────────────────
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
 log = logging.getLogger(__name__)
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
 
-def load_telemetry_spec(path: str) -> str:
-    """Flatten all sheets of the Excel spec into a single text blob."""
-    log.info("Loading telemetry spec from %s", path)
+# ──────────────────────────── Spec loading ────────────────────────────────────
+
+def load_spec_chunks(path: str, chunk_size: int = CHUNK_SIZE) -> list[str]:
+    """Load all Excel sheets, convert each to text, split into overlapping chunks."""
+    log.info("Loading spec: %s", path)
     xl = pd.read_excel(path, sheet_name=None, header=None, dtype=str)
-    chunks = []
+    raw_lines: list[str] = []
     for sheet_name, df in xl.items():
         df = df.fillna("")
-        text = df.to_csv(sep="\t", index=False, header=False)
-        chunks.append(f"=== Sheet: {sheet_name} ===\n{text}")
-    full = "\n\n".join(chunks)
-    log.info("Spec loaded: %d chars across %d sheets", len(full), len(xl))
-    return full
+        raw_lines.append(f"[Sheet: {sheet_name}]")
+        for _, row in df.iterrows():
+            line = "\t".join(str(c) for c in row if str(c).strip())
+            if line.strip():
+                raw_lines.append(line)
+
+    # Sliding window with 50 % overlap
+    chunks, step = [], max(1, chunk_size // 2)
+    for i in range(0, len(raw_lines), step):
+        chunk = "\n".join(raw_lines[i : i + chunk_size])
+        if chunk.strip():
+            chunks.append(chunk)
+
+    log.info("Spec → %d lines → %d chunks (size=%d, step=%d)",
+             len(raw_lines), len(chunks), chunk_size, step)
+    return chunks
 
 
-def load_attributes(path: str) -> pd.DataFrame:
-    log.info("Loading attribute CSV from %s", path)
-    df = pd.read_csv(path, dtype=str).fillna("")
-    required = {"TABLE_NAME", "COLUMN_NAME"}
-    if not required.issubset(df.columns):
-        raise ValueError(f"CSV must have columns: {required}. Found: {set(df.columns)}")
-    return df
+# ──────────────────────────── Embeddings / retrieval ─────────────────────────
 
 
-def trim_spec(spec: str, table: str, column: str, max_chars: int) -> str:
+
+# def ollama_embed(texts: list[str], model: str):
+#     vectors = []
+
+#     for text in texts:
+#         r = requests.post(
+#             f"{OLLAMA_URL}/api/embeddings",
+#             json={
+#                 "model": model,
+#                 "prompt": text
+#             },
+#             timeout=300
+#         )
+
+#         r.raise_for_status()
+#         vec = r.json()["embedding"]
+
+#         vec = np.array(vec, dtype=np.float32)
+#         vec = vec / np.linalg.norm(vec)
+
+#         vectors.append(vec)
+
+#     return np.vstack(vectors)
+
+def ollama_embed(texts, model):
+    r = requests.post(
+        f"{OLLAMA_URL}/api/embed",
+        json={
+            "model": model,
+            "input": texts
+        },
+        timeout=600
+    )
+
+    r.raise_for_status()
+
+    embeddings = np.array(
+        r.json()["embeddings"],
+        dtype=np.float32
+    )
+
+    norms = np.linalg.norm(
+        embeddings,
+        axis=1,
+        keepdims=True
+    )
+
+    return embeddings / norms
+
+
+
+def build_chunk_index(chunks: list[str], embed_model_name: str):
+    log.info("Building embedding index using Ollama model '%s'",
+             embed_model_name)
+
+    matrix = ollama_embed(chunks, embed_model_name)
+
+    log.info("Index ready: %s", matrix.shape)
+
+    return embed_model_name, matrix
+
+
+def retrieve_chunks(query: str, embed_model, chunk_matrix: np.ndarray,
+                    chunks: list[str], top_k: int = TOP_K_CHUNKS) -> str:
+    """Return the top-k spec chunks most semantically similar to `query`."""
+    # q_vec = embed_model.encode([query], normalize_embeddings=True)
+    q_vec = ollama_embed([query], embed_model)
+    scores = (chunk_matrix @ q_vec.T).ravel()
+    top_idx = np.argsort(scores)[::-1][:top_k]
+    selected = [chunks[i] for i in sorted(top_idx)]   # preserve doc order
+    return "\n---\n".join(selected)
+
+
+# ──────────────────────────── LLM helpers ────────────────────────────────────
+
+def call_llm(client: OpenAI, prompt: str, label: str = "") -> str:
     """
-    Return a context-relevant slice of the spec.
-    First try lines that contain the column/table name (case-insensitive).
-    Fall back to a head truncation if nothing relevant found.
+    Call vLLM and return the raw text response.
+    Surfaces the real exception on each attempt so you can diagnose failures.
     """
-    col_lower = column.lower().replace("_", " ")
-    tbl_lower = table.lower().replace("_", " ")
-    relevant, rest = [], []
-    for line in spec.splitlines():
-        ll = line.lower()
-        if col_lower in ll or tbl_lower in ll or any(
-            tok in ll for tok in col_lower.split() if len(tok) > 3
-        ):
-            relevant.append(line)
-        else:
-            rest.append(line)
-
-    combined = "\n".join(relevant) + "\n" + "\n".join(rest)
-    return combined[:max_chars]
-
-
-def build_prompt(spec_excerpt: str, table: str, column: str) -> str:
-    return textwrap.dedent(f"""
-        You are a precise technical documentation assistant for SSD firmware telemetry.
-        Below is an excerpt from the SSD Telemetry Specification document.
-
-        <telemetry_spec>
-        {spec_excerpt}
-        </telemetry_spec>
-
-        Task:
-        1. Find the description for the TABLE "{table}" — what this telemetry table represents.
-        2. Find the description for the COLUMN "{column}" within that table — what this field measures or records.
-
-        IMPORTANT rules:
-        - If you cannot find a description, you MUST say so explicitly — do NOT invent one.
-          Missing descriptions are critical gaps that need human review.
-        - Keep descriptions concise (1–3 sentences each).
-        - Respond ONLY with valid JSON in this exact structure (no markdown fences, no extra text):
-        {{
-          "table_description": "<description or 'NOT FOUND IN SPEC — requires manual review'>",
-          "column_description": "<description or 'NOT FOUND IN SPEC — requires manual review'>"
-        }}
-    """).strip()
-
-
-def query_llm(client: OpenAI, prompt: str) -> dict:
-    """Call vLLM and parse the JSON response with retries."""
+    last_err = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             resp = client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=512,
+                temperature=LLM_TEMPERATURE,
+                max_tokens=LLM_MAX_TOKENS,
             )
-            raw = resp.choices[0].message.content.strip()
-            # Strip accidental markdown fences
-            raw = re.sub(r"^```(?:json)?\s*", "", raw)
-            raw = re.sub(r"\s*```$", "", raw)
-            return json.loads(raw)
-        except json.JSONDecodeError as e:
-            log.warning("Attempt %d — JSON parse error: %s | raw: %s", attempt, e, raw[:200])
-        except Exception as e:
-            log.warning("Attempt %d — API error: %s", attempt, e)
-        if attempt < MAX_RETRIES:
-            time.sleep(RETRY_DELAY)
+            return resp.choices[0].message.content.strip()
+        except Exception as exc:
+            last_err = exc
+            log.warning("[%s] Attempt %d/%d failed: %s: %s",
+                        label, attempt, MAX_RETRIES, type(exc).__name__, exc)
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_DELAY_SEC)
 
-    log.error("All retries exhausted for prompt excerpt.")
-    return {
-        "table_description": "ERROR: LLM call failed after retries",
-        "column_description": "ERROR: LLM call failed after retries",
-    }
+    # All retries exhausted — raise with full detail
+    raise RuntimeError(
+        f"[{label}] vLLM call failed after {MAX_RETRIES} attempts. "
+        f"Last error → {type(last_err).__name__}: {last_err}\n\n"
+        f"Check: is vLLM running at {VLLM_BASE_URL}? "
+        f"Is model '{MODEL_NAME}' loaded? (curl {VLLM_BASE_URL}/v1/models)"
+    ) from last_err
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+def parse_json_response(raw: str) -> dict:
+    """Strip markdown fences and parse JSON."""
+    clean = re.sub(r"^```(?:json)?\s*", "", raw.strip())
+    clean = re.sub(r"\s*```$", "", clean).strip()
+    return json.loads(clean)
+
+
+# ──────────────────────────── Per-attribute prompt ───────────────────────────
+
+def prompt_column_description(table: str, column: str,
+                               spec_excerpt: str) -> str:
+    return textwrap.dedent(f"""
+        You are a precise technical documentation assistant for SSD firmware telemetry.
+        The following excerpts are from the SSD Telemetry Specification and were
+        retrieved as the most semantically relevant sections for the attribute below.
+
+        <spec_excerpts>
+        {spec_excerpt}
+        </spec_excerpts>
+
+        Task:
+        Provide a concise 1–2 sentence description for the column "{column}"
+        in telemetry table "{table}".
+
+        Rules:
+        - Base your answer ONLY on the spec excerpts above.
+        - If the information is genuinely absent, say exactly:
+          "NOT FOUND IN SPEC — requires manual review"
+          Do NOT invent or infer beyond what is written.
+        - Respond ONLY with valid JSON — no markdown, no preamble:
+        {{"column_description": "<your description>"}}
+    """).strip()
+
+
+# ──────────────────────────── Table summary prompt ───────────────────────────
+
+def prompt_table_description(table: str,
+                              col_descriptions: list[tuple[str, str]]) -> str:
+    col_block = "\n".join(
+        f"  • {col}: {desc}" for col, desc in col_descriptions
+        if "NOT FOUND" not in desc
+    )
+    return textwrap.dedent(f"""
+        You are writing concise technical documentation for an SSD telemetry database.
+
+        The table "{table}" contains these columns and their descriptions:
+        {col_block}
+
+        Task:
+        Write ONE coherent sentence (max 40 words) that describes what the
+        table "{table}" as a whole captures or represents.
+        Focus on the collective purpose, not individual columns.
+
+        Respond ONLY with valid JSON — no markdown, no preamble:
+        {{"table_description": "<one sentence>"}}
+    """).strip()
+
+
+# ──────────────────────────── Main pipeline ──────────────────────────────────
 
 def main():
-    spec     = load_telemetry_spec(EXCEL_SPEC_PATH)
-    attrs_df = load_attributes(ATTRIBUTES_CSV)
-    client   = OpenAI(base_url=VLLM_BASE_URL, api_key=VLLM_API_KEY)
+    # 1. Load inputs
+    chunks = load_spec_chunks(EXCEL_SPEC_PATH)
+    embed_model, chunk_matrix = build_chunk_index(chunks, EMBED_MODEL)
 
-    results = []
+    attrs_df = pd.read_csv(ATTRIBUTES_CSV, dtype=str).fillna("")
+    required = {"TABLE_NAME", "COLUMN_NAME"}
+    if not required.issubset(attrs_df.columns):
+        raise ValueError(f"CSV must contain columns: {required}. Got: {set(attrs_df.columns)}")
+
+    client = OpenAI(base_url=VLLM_BASE_URL, api_key=VLLM_API_KEY)
+
+    # Quick connectivity check before the main loop
+    try:
+        models = client.models.list()
+        available = [m.id for m in models.data]
+        log.info("vLLM reachable. Available models: %s", available)
+        if MODEL_NAME not in available:
+            log.warning("Model '%s' not in available list %s — proceeding anyway.",
+                        MODEL_NAME, available)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Cannot reach vLLM at {VLLM_BASE_URL}. "
+            f"Start vLLM first.\nError: {exc}"
+        ) from exc
+
+    # 2. Process each attribute
+    records = []          # [{ TABLE_NAME, COLUMN_NAME, column_description, ...orig }]
     total = len(attrs_df)
 
     for idx, row in attrs_df.iterrows():
         table  = row["TABLE_NAME"].strip()
         column = row["COLUMN_NAME"].strip()
-        log.info("[%d/%d] Processing %s.%s", idx + 1, total, table, column)
+        log.info("[%d/%d] %s.%s", idx + 1, total, table, column)
 
-        spec_excerpt = trim_spec(spec, table, column, MAX_SPEC_CHARS)
-        prompt       = build_prompt(spec_excerpt, table, column)
-        llm_out      = query_llm(client, prompt)
+        # Semantic retrieval — query is the natural-language attribute description
+        # query        = f"telemetry attribute {column} in table {table} SSD firmware"
+        query = f"""
+                    Table: {table}
+                    Column: {column}
 
-        result = {
-            "TABLE_NAME":         table,
-            "COLUMN_NAME":        column,
-            "table_description":  llm_out.get("table_description", ""),
-            "column_description": llm_out.get("column_description", ""),
-        }
-        # Preserve any extra columns from the original CSV
+                    Find specification details, definition,
+                    purpose, meaning, units, encoding,
+                    constraints, and telemetry behavior.
+                    """
+        spec_excerpt = retrieve_chunks(query, embed_model, chunk_matrix, chunks)
+
+        prompt = prompt_column_description(table, column, spec_excerpt)
+        raw    = call_llm(client, prompt, label=f"{table}.{column}")
+
+        try:
+            col_desc = parse_json_response(raw).get("column_description", "")
+        except json.JSONDecodeError:
+            log.warning("JSON parse failed for %s.%s — storing raw LLM output.", table, column)
+            col_desc = raw  # keep whatever came back rather than lose it
+
+        rec = {"TABLE_NAME": table, "COLUMN_NAME": column,
+               "column_description": col_desc, "table_description": ""}
         for col in attrs_df.columns:
-            if col not in result:
-                result[col] = row[col]
+            if col not in rec:
+                rec[col] = row[col]
+        records.append(rec)
 
-        results.append(result)
+    result_df = pd.DataFrame(records)
 
-    out_df = pd.DataFrame(results)
-    out_df.to_csv(OUTPUT_CSV, index=False)
-    log.info("Saved enriched attributes to %s (%d rows)", OUTPUT_CSV, len(out_df))
+    # 3. Generate table descriptions by summarising all column descriptions per table
+    log.info("Generating table descriptions …")
+    table_descs: dict[str, str] = {}
 
-    # Summary: flag NOT FOUND entries
-    not_found = out_df[
-        out_df["column_description"].str.contains("NOT FOUND", na=False) |
-        out_df["table_description"].str.contains("NOT FOUND", na=False)
+    for table, grp in result_df.groupby("TABLE_NAME", sort=False):
+        col_descs = list(zip(grp["COLUMN_NAME"], grp["column_description"]))
+        valid = [(c, d) for c, d in col_descs if "NOT FOUND" not in d and d.strip()]
+
+        if not valid:
+            log.warning("Table '%s' has no resolved column descriptions — skipping summary.", table)
+            table_descs[table] = "NOT FOUND — all columns unresolved; requires manual review"
+            continue
+
+        prompt   = prompt_table_description(table, valid)
+        raw      = call_llm(client, prompt, label=f"TABLE:{table}")
+        try:
+            t_desc = parse_json_response(raw).get("table_description", "")
+        except json.JSONDecodeError:
+            t_desc = raw
+
+        table_descs[table] = t_desc
+        log.info("  Table '%s': %s", table, t_desc[:80])
+
+    result_df["table_description"] = result_df["TABLE_NAME"].map(table_descs)
+
+    # 4. Reorder columns and save
+    front_cols = ["TABLE_NAME", "COLUMN_NAME", "table_description", "column_description"]
+    extra_cols = [c for c in result_df.columns if c not in front_cols]
+    result_df  = result_df[front_cols + extra_cols]
+    result_df.to_csv(OUTPUT_CSV, index=False)
+    log.info("Saved → %s  (%d rows)", OUTPUT_CSV, len(result_df))
+
+    # 5. Report gaps
+    not_found = result_df[
+        result_df["column_description"].str.contains("NOT FOUND", na=False) |
+        result_df["table_description"].str.contains("NOT FOUND", na=False)
     ]
     if not not_found.empty:
         log.warning(
-            "⚠  %d attribute(s) had descriptions NOT FOUND in spec — "
-            "manual review required:\n%s",
+            "⚠  %d attribute(s) not found in spec — manual review needed:\n%s",
             len(not_found),
-            not_found[["TABLE_NAME", "COLUMN_NAME"]].to_string(index=False)
+            not_found[["TABLE_NAME", "COLUMN_NAME"]].to_string(index=False),
         )
     else:
-        log.info("✓ All attributes resolved successfully.")
+        log.info("✓  All attributes resolved.")
 
 
 if __name__ == "__main__":
