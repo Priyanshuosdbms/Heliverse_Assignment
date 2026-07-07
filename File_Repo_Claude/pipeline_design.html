@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>xlsx2json Agent Pipeline</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@300;400;500;600&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0d1117;
+    --surface:   #161b22;
+    --border:    #30363d;
+    --input:     #1f6feb;
+    --python:    #2ea043;
+    --llm:       #a371f7;
+    --tool:      #f78166;
+    --output:    #3fb950;
+    --loop:      #d29922;
+    --muted:     #8b949e;
+    --text:      #e6edf3;
+    --text-dim:  #7d8590;
+    --mono:      'JetBrains Mono', monospace;
+    --sans:      'Inter', sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 24px 80px;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 48px;
+  }
+  header h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    letter-spacing: .04em;
+    color: var(--text);
+  }
+  header p {
+    margin-top: 6px;
+    font-size: .8rem;
+    color: var(--text-dim);
+    font-family: var(--mono);
+  }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 40px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: .72rem;
+    color: var(--text-dim);
+    font-family: var(--mono);
+  }
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+
+  /* Pipeline container */
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    width: 100%;
+    max-width: 720px;
+  }
+
+  /* Generic node */
+  .node {
+    position: relative;
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 16px 20px;
+    cursor: default;
+    transition: border-color .2s, box-shadow .2s, transform .15s;
+  }
+  .node:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(0,0,0,.4);
+  }
+  .node-label {
+    font-size: .65rem;
+    font-family: var(--mono);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    opacity: .65;
+  }
+  .node-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .node-sub {
+    font-size: .78rem;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    line-height: 1.5;
+  }
+
+  /* Node colour themes */
+  .node-input  { border-color: var(--input);  }
+  .node-input .node-label  { color: var(--input);  }
+  .node-input:hover  { box-shadow: 0 8px 32px rgba(31,111,235,.25); }
+
+  .node-python { border-color: var(--python); }
+  .node-python .node-label { color: var(--python); }
+  .node-python:hover { box-shadow: 0 8px 32px rgba(46,160,67,.25); }
+
+  .node-llm    { border-color: var(--llm);    }
+  .node-llm .node-label    { color: var(--llm);    }
+  .node-llm:hover    { box-shadow: 0 8px 32px rgba(163,113,247,.25); }
+
+  .node-output { border-color: var(--output); }
+  .node-output .node-label { color: var(--output); }
+  .node-output:hover { box-shadow: 0 8px 32px rgba(63,185,80,.25); }
+
+  /* Connector arrow */
+  .connector {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4px 0;
+    gap: 0;
+  }
+  .connector-line {
+    width: 2px;
+    height: 24px;
+    background: var(--border);
+  }
+  .connector-label {
+    font-size: .67rem;
+    font-family: var(--mono);
+    color: var(--text-dim);
+    background: var(--bg);
+    padding: 2px 8px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    margin: 4px 0;
+    text-align: center;
+    max-width: 400px;
+    line-height: 1.5;
+  }
+  .connector-arrow {
+    width: 0; height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 8px solid var(--border);
+  }
+
+  /* Codegen box — contains internal tool rows */
+  .codegen-outer {
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid var(--llm);
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .codegen-header {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .codegen-header .node-label { color: var(--llm); margin-bottom: 6px; }
+  .codegen-header .node-title { margin-bottom: 2px; }
+  .codegen-body {
+    padding: 12px 16px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* Tool rows inside codegen */
+  .tool-row {
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+    background: var(--bg);
+    transition: border-color .2s, box-shadow .15s;
+    cursor: default;
+  }
+  .tool-row:hover {
+    border-color: var(--tool);
+    box-shadow: 0 4px 16px rgba(247,129,102,.15);
+  }
+  .tool-accent {
+    width: 4px;
+    background: var(--tool);
+    flex-shrink: 0;
+  }
+  .tool-accent.loop  { background: var(--loop); }
+  .tool-accent.addr  { background: var(--input); }
+  .tool-content {
+    padding: 10px 12px;
+    flex: 1;
+  }
+  .tool-name {
+    font-family: var(--mono);
+    font-size: .78rem;
+    font-weight: 600;
+    color: var(--tool);
+    margin-bottom: 3px;
+  }
+  .tool-name.loop { color: var(--loop); }
+  .tool-name.addr { color: var(--input); }
+  .tool-desc {
+    font-size: .72rem;
+    color: var(--text-dim);
+    line-height: 1.45;
+  }
+  .tool-badge {
+    display: inline-block;
+    font-size: .6rem;
+    font-family: var(--mono);
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-left: 6px;
+    vertical-align: middle;
+    background: rgba(210,153,34,.15);
+    color: var(--loop);
+    border: 1px solid rgba(210,153,34,.3);
+  }
+
+  /* Loop annotation */
+  .loop-note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 5px;
+    background: rgba(210,153,34,.07);
+    border: 1px dashed rgba(210,153,34,.35);
+    font-size: .7rem;
+    font-family: var(--mono);
+    color: var(--loop);
+    margin-top: 2px;
+  }
+  .loop-note svg { flex-shrink: 0; }
+
+  /* resolve_address branch */
+  .branch-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding-left: 32px;
+    width: 100%;
+  }
+  .branch-line-h {
+    width: 32px;
+    height: 2px;
+    background: var(--border);
+    margin-top: 10px;
+    align-self: flex-start;
+  }
+
+  /* JSON output preview */
+  .json-preview {
+    margin-top: 8px;
+    padding: 10px 14px;
+    border-radius: 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: .7rem;
+    line-height: 1.6;
+    color: var(--text-dim);
+    overflow: hidden;
+  }
+  .json-key   { color: #79c0ff; }
+  .json-str   { color: #a5d6ff; }
+  .json-num   { color: #f2cc60; }
+  .json-punc  { color: var(--text-dim); }
+
+  /* Tooltip */
+  .node[data-tip]:hover::after,
+  .tool-row[data-tip]:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1c2128;
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: .72rem;
+    font-family: var(--mono);
+    padding: 6px 10px;
+    border-radius: 5px;
+    white-space: nowrap;
+    z-index: 10;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>xlsx2json Agent — Pipeline</h1>
+  <p>deepagents · Qwen3 via vLLM · openpyxl</p>
+</header>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:var(--input)"></div>I/O</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--python)"></div>Pure Python (no LLM)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--llm)"></div>LLM Sub-agent (Qwen3)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--tool)"></div>Tool call</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--loop)"></div>Retry loop</div>
+</div>
+
+<div class="pipeline">
+
+  <!-- INPUT -->
+  <div class="node node-input" data-tip="Accepts .xlsx or .xlsm — single file or whole folder">
+    <div class="node-label">Input</div>
+    <div class="node-title">Excel workbook</div>
+    <div class="node-sub">.xlsx / .xlsm — register map</div>
+  </div>
+
+  <div class="connector">
+    <div class="connector-line"></div>
+    <div class="connector-arrow"></div>
+  </div>
+
+  <!-- INSPECT EXCEL -->
+  <div class="node node-python" data-tip="Reads up to 40 rows + merged ranges per sheet. No LLM involved.">
+    <div class="node-label">Pure Python · Tool</div>
+    <div class="node-title">inspect_excel</div>
+    <div class="node-sub">Samples headers · fill colours · merged ranges · 40-row slice per sheet</div>
+  </div>
+
+  <div class="connector">
+    <div class="connector-line"></div>
+    <div class="connector-label">compact JSON: row values, fill colour, merged ranges, column letters</div>
+    <div class="connector-line"></div>
+    <div class="connector-arrow"></div>
+  </div>
+
+  <!-- SCHEMA SNIFFER -->
+  <div class="node node-llm" data-tip="Outputs a grammar spec JSON — which columns hold what, where data starts, any quirks.">
+    <div class="node-label">LLM Sub-agent · Qwen3</div>
+    <div class="node-title">Schema Sniffer</div>
+    <div class="node-sub">Infers row grammar from the sample — row_type_col · group_value · reg_value<br>address_col · msb_col · lsb_col · field_name_col · reset_col · type_col<br>description_col · data_start_row · sheets_to_parse · quirks</div>
+  </div>
+
+  <div class="connector">
+    <div class="connector-line"></div>
+    <div class="connector-label">grammar spec JSON</div>
+    <div class="connector-line"></div>
+    <div class="connector-arrow"></div>
+  </div>
+
+  <!-- CODEGEN & VALIDATE -->
+  <div class="codegen-outer">
+    <div class="codegen-header">
+      <div class="node-label">LLM Sub-agent · Qwen3</div>
+      <div class="node-title">Codegen &amp; Validate</div>
+      <div class="node-sub" style="margin-top:4px">Writes, runs, and iteratively fixes a parser script until output is valid</div>
+    </div>
+    <div class="codegen-body">
+
+      <div class="tool-row" data-tip="Saves generated openpyxl script to output/generated_parser.py">
+        <div class="tool-accent"></div>
+        <div class="tool-content">
+          <div class="tool-name">write_parser_script</div>
+          <div class="tool-desc">Generates an openpyxl script tailored to this file's grammar spec → saves to disk</div>
+        </div>
+      </div>
+
+      <div class="tool-row" data-tip="Streams stdout/stderr live to terminal via Popen + threads">
+        <div class="tool-accent"></div>
+        <div class="tool-content">
+          <div class="tool-name">run_parser</div>
+          <div class="tool-desc">Executes script in subprocess · streams stdout/stderr live · captures output preview</div>
+        </div>
+      </div>
+
+      <div class="tool-row" data-tip="Checks: msb≥lsb, no overlap, address present, fields non-empty">
+        <div class="tool-accent loop"></div>
+        <div class="tool-content">
+          <div class="tool-name loop">validate_json <span class="tool-badge">↻ up to 5×</span></div>
+          <div class="tool-desc">Structural checks: bitfield overlap · msb/lsb integrity · address presence · empty fields<br>
+            <span style="color:var(--loop)">errors → patch script → re-run</span></div>
+        </div>
+      </div>
+
+      <div class="loop-note">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <path d="M8 1v6l4 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>
+        </svg>
+        Patch loop: validation errors fed back → script rewritten → re-executed · max 5 attempts
+      </div>
+
+      <!-- resolve_address branch -->
+      <div style="display:flex;align-items:flex-start;gap:0;margin-top:4px">
+        <div style="display:flex;flex-direction:column;align-items:center;padding-top:18px">
+          <div style="width:2px;height:20px;background:var(--border)"></div>
+          <div style="width:28px;height:2px;background:var(--border)"></div>
+        </div>
+        <div style="flex:1">
+          <div class="tool-row" style="margin-left:0" data-tip="Called when address cell contains a formula like 0x018+0x20*N">
+            <div class="tool-accent addr"></div>
+            <div class="tool-content">
+              <div class="tool-name addr">resolve_address  <span style="font-weight:400;color:var(--text-dim)">(if address is a formula)</span></div>
+              <div class="tool-desc">
+                Parses expression like <code style="color:var(--input)">0x018+0x20*N</code><br>
+                1. Searches register description for N value / range<br>
+                2. If not found → prompts user on CLI<br>
+                Returns <code style="color:var(--input)">addresses[]</code> + zero-padded <code style="color:var(--input)">name_suffixes[]</code><br>
+                <span style="color:var(--input)">→ one register entry per address · names suffixed _00 _01 …</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="connector">
+    <div class="connector-line"></div>
+    <div class="connector-arrow"></div>
+  </div>
+
+  <!-- OUTPUT -->
+  <div class="node node-output">
+    <div class="node-label">Output</div>
+    <div class="node-title">registers JSON</div>
+    <div class="json-preview">
+<span class="json-punc">{</span> <span class="json-key">"registers"</span><span class="json-punc">:</span> <span class="json-punc">[</span><br>
+&nbsp;&nbsp;<span class="json-punc">{</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="json-key">"name"</span><span class="json-punc">:</span> <span class="json-str">"EDPQ_00"</span><span class="json-punc">,</span> &nbsp;<span class="json-key">"address"</span><span class="json-punc">:</span> <span class="json-str">"0x18"</span><span class="json-punc">,</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="json-key">"fields"</span><span class="json-punc">:</span> <span class="json-punc">[</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="json-punc">{</span> <span class="json-key">"name"</span><span class="json-punc">:</span> <span class="json-str">"ADDRESS_00"</span><span class="json-punc">,</span> <span class="json-key">"msb"</span><span class="json-punc">:</span> <span class="json-num">31</span><span class="json-punc">,</span> <span class="json-key">"lsb"</span><span class="json-punc">:</span> <span class="json-num">6</span><span class="json-punc">,</span> <span class="json-key">"type"</span><span class="json-punc">:</span> <span class="json-str">"RW"</span> <span class="json-punc">}</span><span class="json-punc">,</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="json-punc">{</span> <span class="json-key">"name"</span><span class="json-punc">:</span> <span class="json-str">"LENGTH_00"</span><span class="json-punc">,</span> <span class="json-key">"msb"</span><span class="json-punc">:</span> <span class="json-num">2</span><span class="json-punc">,</span> &nbsp;<span class="json-key">"lsb"</span><span class="json-punc">:</span> <span class="json-num">0</span><span class="json-punc">,</span> <span class="json-key">"type"</span><span class="json-punc">:</span> <span class="json-str">"RW"</span> <span class="json-punc">}</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="json-punc">]</span><br>
+&nbsp;&nbsp;<span class="json-punc">}</span><span class="json-punc">,</span> <span style="color:var(--text-dim)">…</span><br>
+<span class="json-punc">]</span> <span class="json-punc">}</span>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
