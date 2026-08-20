@@ -14,6 +14,12 @@ Usage:
     python wiki_agent_deepagents.py enrich-links
     python wiki_agent_deepagents.py dedup
     python wiki_agent_deepagents.py delete <path> [--force]
+    
+        # 1. Ingest — includes per-chunk coverage review AND auto-regenerates the graph at the end
+        python wiki_agent_deepagents.py ingest-large full_nvme_spec.json
+        
+        # 2. Final whole-wiki sanity pass — standalone, run after ingestion finishes
+        python compare_json_to_wiki.py full_nvme_spec.json --wiki ./wiki --llm-verify --out coverage_report.md
 
 What's fully implemented from the planning doc:
   §2.2/2.3  write_wiki_page tool — host-enforced path safety + deterministic
